@@ -1,0 +1,94 @@
+[
+  {
+    "fixture": "plain.html",
+    "slot_count": 39160,
+    "branch_node_count": 532,
+    "linear_node_count": 532,
+    "linear_matches_mapping_branch": true,
+    "content_types": {
+      "text": 352,
+      "model_editable_context": 19,
+      "thoughts": 90,
+      "reasoning_recap": 42,
+      "code": 12,
+      "multimodal_text": 10,
+      "execution_output": 6
+    },
+    "classifications": {
+      "root": 1,
+      "('system', 'text', 'all')": 38,
+      "('user', 'text', 'all')": 35,
+      "('assistant', 'model_editable_context', 'all')": 19,
+      "('assistant', 'text', 'web.run')": 92,
+      "('tool', 'text', 'all')": 138,
+      "('assistant', 'thoughts', 'all')": 90,
+      "('assistant', 'reasoning_recap', 'all')": 42,
+      "('assistant', 'text', 'all')": 47,
+      "('assistant', 'code', 'genui.search')": 6,
+      "('user', 'multimodal_text', 'all')": 10,
+      "('assistant', 'code', 'python')": 6,
+      "('tool', 'execution_output', 'all')": 6,
+      "('system', 'text', 'assistant')": 1,
+      "('assistant', 'text', 'web')": 1
+    }
+  },
+  {
+    "fixture": "markdown.html",
+    "slot_count": 6642,
+    "branch_node_count": 219,
+    "linear_node_count": 219,
+    "linear_matches_mapping_branch": true,
+    "content_types": {
+      "text": 149,
+      "multimodal_text": 6,
+      "model_editable_context": 10,
+      "reasoning_recap": 40,
+      "thoughts": 13
+    },
+    "classifications": {
+      "root": 1,
+      "('user', 'text', 'all')": 35,
+      "('system', 'text', 'all')": 57,
+      "('user', 'multimodal_text', 'all')": 6,
+      "('assistant', 'model_editable_context', 'all')": 10,
+      "('assistant', 'reasoning_recap', 'all')": 40,
+      "('assistant', 'text', 'all')": 40,
+      "('assistant', 'thoughts', 'all')": 13,
+      "('assistant', 'text', 'bio')": 1,
+      "('tool', 'text', 'assistant')": 1,
+      "('tool', 'text', 'all')": 10,
+      "('assistant', 'text', 'q7dr546')": 1,
+      "('assistant', 'text', 'web.run')": 4
+    }
+  },
+  {
+    "fixture": "rich.html",
+    "slot_count": 12694,
+    "branch_node_count": 339,
+    "linear_node_count": 339,
+    "linear_matches_mapping_branch": true,
+    "content_types": {
+      "text": 201,
+      "multimodal_text": 26,
+      "model_editable_context": 28,
+      "thoughts": 29,
+      "reasoning_recap": 48,
+      "code": 3,
+      "execution_output": 3
+    },
+    "classifications": {
+      "root": 1,
+      "('system', 'text', 'all')": 79,
+      "('user', 'text', 'all')": 33,
+      "('user', 'multimodal_text', 'all')": 26,
+      "('assistant', 'model_editable_context', 'all')": 28,
+      "('assistant', 'thoughts', 'all')": 29,
+      "('assistant', 'reasoning_recap', 'all')": 48,
+      "('assistant', 'text', 'all')": 57,
+      "('assistant', 'text', 'web.run')": 12,
+      "('tool', 'text', 'all')": 20,
+      "('assistant', 'code', 'python')": 3,
+      "('tool', 'execution_output', 'all')": 3
+    }
+  }
+]
