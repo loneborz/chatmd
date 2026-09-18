@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Implement deterministic ChatGPT share parsing core",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-18T20:56:48Z",
-  "updated_at": "2026-09-18T20:56:48Z",
+  "updated_at": "2026-09-18T21:58:04Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -97,21 +97,47 @@ Verification must include the repository's relevant automated tests and an inten
 
 ## Acceptance criteria
 
-- [ ] A production parser implementation exists outside `tools/probe_share.py`.
-- [ ] Public-share HTTP fetching is isolated behind a clear boundary.
-- [ ] React Router hydration data can be decoded into the structured share payload.
-- [ ] `serverResponse.data` is located without rendered DOM scraping.
-- [ ] The active branch is reconstructed from `mapping` plus `current_node`.
-- [ ] Visible user and assistant ordering is deterministic.
-- [ ] Ordinary source text is preserved without rewriting.
-- [ ] Known visible `image_asset_pointer` parts are represented explicitly in the normalized model.
-- [ ] Observed internal and hidden content is excluded according to the CHAT-1 visibility evidence.
-- [ ] Unknown visible content fails clearly instead of being silently discarded.
-- [ ] Fetching, decoding, reconstruction, visibility projection, and normalization are independently testable.
-- [ ] Representative automated tests pass.
-- [ ] Tests and fixtures do not introduce unnecessary sensitive or conversation-specific data.
-- [ ] Markdown serialization, final CLI UX, asset downloading, and packaging remain outside this Work.
-- [ ] The intended implementation diff is reviewed.
+- [x] A production parser implementation exists outside `tools/probe_share.py`.
+- [x] Public-share HTTP fetching is isolated behind a clear boundary.
+- [x] React Router hydration data can be decoded into the structured share payload.
+- [x] `serverResponse.data` is located without rendered DOM scraping.
+- [x] The active branch is reconstructed from `mapping` plus `current_node`.
+- [x] Visible user and assistant ordering is deterministic.
+- [x] Ordinary source text is preserved without rewriting.
+- [x] Known visible `image_asset_pointer` parts are represented explicitly in the normalized model.
+- [x] Observed internal and hidden content is excluded according to the CHAT-1 visibility evidence.
+- [x] Unknown visible content fails clearly instead of being silently discarded.
+- [x] Fetching, decoding, reconstruction, visibility projection, and normalization are independently testable.
+- [x] Representative automated tests pass.
+- [x] Tests and fixtures do not introduce unnecessary sensitive or conversation-specific data.
+- [x] Markdown serialization, final CLI UX, asset downloading, and packaging remain outside this Work.
+- [x] The intended implementation diff is reviewed.
+
+## Implementation evidence
+
+Accepted implementation consists of:
+
+- `chatmd.py`, containing the production parsing core with isolated fetch, hydration decoding, structured share-data lookup, active-branch reconstruction, visibility projection, and deterministic normalization.
+- `test_chatmd.py`, containing privacy-safe synthetic coverage for supported content, visibility exclusions, graph invariants, malformed-source handling, and fail-visible unsupported content.
+- LWA execution run `go-20260918T210011.129471000Z-02ff1daf34cfb853` was finalized with disposition `completed` and retained locally.
+
+The implementation remained within CHAT-2 scope. Markdown serialization, final CLI UX, asset downloading, packaging, installation, and release work were not added.
+
+## Verification and acceptance
+
+Human review accepts the CHAT-2 result with execution disposition `completed`.
+
+Verification evidence:
+
+- The final repository test suite contains 14 tests and passed through the LWA verification recorder.
+- The final parser was reviewed after the root-format correction.
+- All three representative CHAT-1 public shares parsed successfully through the production `chatmd.parse_share()` boundary.
+- The plain representative produced 88 visible messages.
+- The Markdown representative produced 80 visible messages.
+- The rich representative produced 115 visible messages and preserved visible image parts structurally.
+- The intended implementation diff was reviewed and remained limited to the parser core, tests, and retained execution evidence.
+- No dependency, serializer, CLI, asset-download, packaging, installation, or release scope was introduced.
+- LWA execution evidence records frozen Work revision 1, finalized execution disposition `completed`, successful verification attempts, and `chatmd.py` plus `test_chatmd.py` as the product changed files. The retained bundle is intentionally excluded from public Git because it contains machine-local absolute paths.
 
 ## Completion boundary
 
@@ -125,8 +151,8 @@ Those remain separate future Work.
 
 - ID: `CHAT-2`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
