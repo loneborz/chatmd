@@ -60,6 +60,7 @@ Rich or non-text ChatGPT content must either have an explicit faithful represent
 ## Owned Work
 
 - [[Projects/CHAT-P1/Work/CHAT-1|CHAT-1]]: Prove lossless ChatGPT share parsing
+- [[Projects/CHAT-P1/Work/CHAT-2|CHAT-2]]: Implement deterministic ChatGPT share parsing core
 
 ## Owned Documents
 
