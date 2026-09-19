@@ -1,14 +1,16 @@
 import io
 import json
 import os
+import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
 from email.message import Message as Headers
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import chatmd
 
@@ -16,6 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 
 CAPTURE_DATE = date(2026, 9, 19)
 SOURCE_URL = "https://chatgpt.com/share/example"
+IMAGE_POINTER = "sediment://file_example?shared_conversation_id=example"
+SECOND_IMAGE_POINTER = "sediment://file_other?shared_conversation_id=example"
+BLOB_URL = "https://blob.example/files/raw?sig=SECRETTOKEN"
 POST_CAPTURE_SUCCESS_MARKERS = (
     "CAPTURE COMPLETE",
     "Saved:",
@@ -24,6 +29,46 @@ POST_CAPTURE_SUCCESS_MARKERS = (
     "This shared link still exists.",
     "ChatGPT > Settings > Data Controls > Shared Links",
 )
+SECRET_MARKERS = (
+    "SECRETTOKEN",
+    "sig=",
+    BLOB_URL,
+    "Cookie:",
+    "cookie=",
+    "__Host-next-auth",
+    "Set-Cookie",
+)
+
+
+def png_bytes(width: int = 1, height: int = 1, pixel: bytes = b"\xff\x00\x00") -> bytes:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    raw = b"".join(b"\x00" + pixel * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def acquired_image(
+    filename: str = "img2.PNG",
+    stored_name: str = "01-img2.PNG",
+    data: bytes | None = None,
+) -> chatmd.AcquiredImage:
+    return chatmd.AcquiredImage(filename, stored_name, png_bytes() if data is None else data)
+
+
+def assert_no_secrets(test: unittest.TestCase, *values: object) -> None:
+    combined = "\n".join(
+        value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
+        for value in values
+    )
+    for marker in SECRET_MARKERS:
+        test.assertNotIn(marker, combined)
 
 
 def user_conversation(title: str | None = "Capture", text: str = "hello") -> chatmd.Conversation:
@@ -176,7 +221,10 @@ def fixture(
     root = s.obj(id=s.text("root"))
     image = s.obj(
         content_type=s.text("video_pointer" if unknown_part else "image_asset_pointer"),
-        asset_pointer=s.text("sediment://asset/example"),
+        asset_pointer=s.text(IMAGE_POINTER),
+        size_bytes=s.add(12),
+        width=s.add(2),
+        height=s.add(2),
     )
     user_text = s.text("  exact **source**\n\n")
     user = s.obj(
@@ -260,6 +308,76 @@ def fixture(
     return f"<script>{chatmd.MARKER}{encoded})</script>"
 
 
+def image_share_html(
+    *pointers: str,
+    filenames: list[str] | None = None,
+    size_bytes: int | None = 67,
+    width: int | None = 1,
+    height: int | None = 1,
+    mime_type: str = "image/png",
+) -> str:
+    if not pointers:
+        pointers = (IMAGE_POINTER,)
+    names = list(filenames) if filenames is not None else ["img2.PNG"] * len(pointers)
+    s = Slots()
+    s.add({})
+
+    def optional_int(value: int | None) -> int | None:
+        return None if value is None else s.add(value)
+
+    parts: list[int] = []
+    attachments: list[int] = []
+    for pointer, name in zip(pointers, names, strict=True):
+        file_id = pointer.split("://", 1)[-1].split("?", 1)[0].split("/", 1)[0] or "file_example"
+        fields = {
+            "content_type": s.text("image_asset_pointer"),
+            "asset_pointer": s.text(pointer),
+        }
+        size_ref = optional_int(size_bytes)
+        width_ref = optional_int(width)
+        height_ref = optional_int(height)
+        if size_ref is not None:
+            fields["size_bytes"] = size_ref
+        if width_ref is not None:
+            fields["width"] = width_ref
+        if height_ref is not None:
+            fields["height"] = height_ref
+        parts.append(s.obj(**fields))
+        attachment_fields = {
+            "id": s.text(file_id),
+            "name": s.text(name),
+            "mime_type": s.text(mime_type),
+        }
+        if size_ref is not None:
+            attachment_fields["size"] = size_ref
+        if width_ref is not None:
+            attachment_fields["width"] = width_ref
+        if height_ref is not None:
+            attachment_fields["height"] = height_ref
+        attachments.append(s.obj(**attachment_fields))
+
+    user_message = s.obj(
+        author=s.obj(role=s.text("user")),
+        content=s.obj(content_type=s.text("multimodal_text"), parts=s.array(*parts)),
+        metadata=s.obj(attachments=s.array(*attachments)),
+        recipient=s.text("all"),
+    )
+    assistant_message = s.obj(
+        author=s.obj(role=s.text("assistant")),
+        content=s.obj(content_type=s.text("text"), parts=s.array(s.text("answer"))),
+        metadata=s.obj(),
+        recipient=s.text("all"),
+    )
+    root = s.obj(id=s.text("root"))
+    user = s.obj(id=s.text("user"), parent=s.text("root"), message=user_message)
+    assistant = s.obj(id=s.text("assistant"), parent=s.text("user"), message=assistant_message)
+    mapping = s.obj(root=root, user=user, assistant=assistant)
+    data = s.obj(mapping=mapping, current_node=s.text("assistant"), title=s.text("Images"))
+    loader = s.obj(**{chatmd.ROUTE: s.obj(serverResponse=s.obj(data=data))})
+    s.values[0] = {f"_{s.text('loaderData')}": loader}
+    return f"<script>{chatmd.MARKER}{json.dumps(json.dumps(s.values))})</script>"
+
+
 class FakeResponse:
     def __init__(self, body: bytes) -> None:
         self.body = body
@@ -291,7 +409,14 @@ class ParserTests(unittest.TestCase):
             chatmd.Conversation(None, (
                 chatmd.Message("user", "multimodal_text", (
                     chatmd.TextPart("  exact **source**\n\n"),
-                    chatmd.ImagePart("sediment://asset/example"),
+                    chatmd.ImagePart(
+                        IMAGE_POINTER,
+                        file_id="file_example",
+                        shared_conversation_id="example",
+                        size_bytes=12,
+                        width=2,
+                        height=2,
+                    ),
                 )),
                 chatmd.Message("assistant", "text", (chatmd.TextPart("answer"),)),
             )),
@@ -571,12 +696,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(assistant_text, result)
 
     def test_serialization_preserves_image_position_and_repeated_or_empty_messages(self) -> None:
+        images = (acquired_image("photo.png", "01-photo.png"),)
         conversation = chatmd.Conversation(
             None,
             (
                 chatmd.Message("user", "multimodal_text", (
                     chatmd.TextPart("before"),
-                    chatmd.ImagePart("sediment://asset/example"),
+                    chatmd.ImagePart(IMAGE_POINTER, file_id="file_example", shared_conversation_id="example"),
                     chatmd.TextPart("after"),
                 )),
                 chatmd.Message("user", "text", ()),
@@ -584,18 +710,28 @@ class WorkflowTests(unittest.TestCase):
             ),
         )
 
-        result = chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example")
+        result = chatmd.serialize_conversation(
+            conversation,
+            "https://chatgpt.com/share/example",
+            images,
+            "conversation-images",
+        )
 
         self.assertEqual(result.count("**User**"), 2)
         self.assertEqual(result.count("**ChatGPT**"), 1)
         self.assertEqual(result.count("\n\n---\n\n"), 3)
-        self.assertIn("before[Image in original conversation]after", result)
+        self.assertIn("before![photo.png](conversation-images/01-photo.png)after", result)
         self.assertIn("after\n\n---\n\n**User**", result)
         self.assertIn("**User**\n\n\n\n---\n\n**ChatGPT**", result)
         self.assertTrue(result.endswith("\n"))
         self.assertEqual(
             result,
-            chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example"),
+            chatmd.serialize_conversation(
+                conversation,
+                "https://chatgpt.com/share/example",
+                images,
+                "conversation-images",
+            ),
         )
 
     def test_serialization_emits_file_placeholder_at_structural_part_position(self) -> None:
@@ -722,31 +858,45 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(list(root.rglob("*")), [])
 
     def test_writer_keeps_image_or_file_parts_as_meaningful_content(self) -> None:
-        conversations = (
-            chatmd.Conversation(
-                "Image only",
-                (chatmd.Message("user", "multimodal_text", (
-                    chatmd.ImagePart("sediment://asset/example"),
-                )),),
-            ),
-            chatmd.Conversation(
-                "File only",
-                (chatmd.Message("assistant", "text", (chatmd.FilePart("notes.md"),)),),
-            ),
+        png = png_bytes(1, 1)
+        image_conversation = chatmd.Conversation(
+            "Image only",
+            (chatmd.Message("user", "multimodal_text", (
+                chatmd.ImagePart(IMAGE_POINTER, file_id="file_example", shared_conversation_id="example"),
+            )),),
         )
+        file_conversation = chatmd.Conversation(
+            "File only",
+            (chatmd.Message("assistant", "text", (chatmd.FilePart("notes.md"),)),),
+        )
+        images = (acquired_image("img2.PNG", "01-img2.PNG", png),)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with (
                 patch("chatmd.CAPTURE_ROOT", root),
                 patch("chatmd._capture_date", return_value=CAPTURE_DATE),
             ):
-                for conversation in conversations:
-                    output = chatmd.write_markdown(conversation, SOURCE_URL)
-                    self.assertTrue(output.is_file())
-                    self.assertEqual(
-                        output.read_text(encoding="utf-8"),
-                        chatmd.serialize_conversation(conversation, SOURCE_URL),
-                    )
+                image_output = chatmd.write_markdown(
+                    image_conversation, SOURCE_URL, images=images
+                )
+                file_output = chatmd.write_markdown(file_conversation, SOURCE_URL)
+
+            asset = image_output.parent / "Image only-images" / "01-img2.PNG"
+            self.assertTrue(image_output.is_file())
+            self.assertTrue(asset.is_file())
+            self.assertEqual(asset.read_bytes(), png)
+            self.assertEqual(
+                image_output.read_text(encoding="utf-8"),
+                chatmd.serialize_conversation(
+                    image_conversation, SOURCE_URL, images, "Image only-images"
+                ),
+            )
+            self.assertIn("![img2.PNG](Image%20only-images/01-img2.PNG)", image_output.read_text())
+            self.assertTrue(file_output.is_file())
+            self.assertEqual(
+                file_output.read_text(encoding="utf-8"),
+                chatmd.serialize_conversation(file_conversation, SOURCE_URL),
+            )
 
     def test_writer_publishes_no_partial_file_on_failure(self) -> None:
         invalid = chatmd.Conversation(
@@ -780,9 +930,15 @@ class WorkflowTests(unittest.TestCase):
         saved = Path("/tmp/chatmd-isolated/2026/09/Title.md")
         write_state = {"called": False}
 
-        def write_markdown(written: chatmd.Conversation, url: str) -> Path:
+        def write_markdown(
+            written: chatmd.Conversation,
+            url: str,
+            capture_root: Path | None = None,
+            images: object = (),
+        ) -> Path:
             self.assertEqual(written, conversation)
             self.assertEqual(url, source_url)
+            self.assertEqual(images, ())
             self.assertEqual(stdout.getvalue(), "")
             write_state["called"] = True
             return saved
@@ -795,8 +951,8 @@ class WorkflowTests(unittest.TestCase):
         ):
             self.assertEqual(chatmd.main([source_url]), 0)
 
-        parse_share.assert_called_once_with(source_url)
-        write_markdown_mock.assert_called_once_with(conversation, source_url)
+        parse_share.assert_called_once_with(source_url, ANY)
+        write_markdown_mock.assert_called_once_with(conversation, source_url, images=())
         read_clipboard.assert_not_called()
         self.assertTrue(write_state["called"])
         self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
@@ -865,7 +1021,7 @@ class WorkflowTests(unittest.TestCase):
             ):
                 chatmd.main([SOURCE_URL])
             self.assertEqual(caught.exception.code, 2)
-            write_markdown.assert_called_once_with(conversation, SOURCE_URL)
+            write_markdown.assert_called_once_with(conversation, SOURCE_URL, images=())
             self.assertIn(str(error), stderr.getvalue())
             self.assertEqual(stdout.getvalue(), "")
             assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
@@ -906,6 +1062,287 @@ class WorkflowTests(unittest.TestCase):
         assert_no_successful_capture_result(self, help_text, stderr.getvalue())
 
 
+class RecordingSession:
+    def __init__(
+        self,
+        html: str,
+        resolve_payload: bytes,
+        blob: bytes,
+        *,
+        resolve_error: Exception | None = None,
+        blob_error: Exception | None = None,
+    ) -> None:
+        self.html = html
+        self.resolve_payload = resolve_payload
+        self.blob = blob
+        self.resolve_error = resolve_error
+        self.blob_error = blob_error
+        self.cookie = None
+        self.calls: list[str] = []
+
+    def fetch_text(self, url: str) -> str:
+        self.calls.append(url)
+        self.cookie = "share-session"
+        return self.html
+
+    def get_bytes(self, url: str) -> bytes:
+        self.calls.append(url)
+        if self.cookie is None:
+            raise chatmd.ParseError("HTTP 401")
+        if "/backend-api/files/download/" in url:
+            if self.resolve_error is not None:
+                raise self.resolve_error
+            return self.resolve_payload
+        if url == BLOB_URL:
+            if self.blob_error is not None:
+                raise self.blob_error
+            return self.blob
+        raise chatmd.ParseError("HTTP 404")
+
+
+def resolve_payload(file_name: str = "img2.PNG", download_url: str = BLOB_URL) -> bytes:
+    return json.dumps({
+        "status": "success",
+        "download_url": download_url,
+        "file_name": file_name,
+        "metadata": None,
+        "mime_type": None,
+        "file_size_bytes": None,
+    }).encode()
+
+
+class ImageAcquisitionTests(unittest.TestCase):
+    def test_image_pointer_extraction_retains_acquisition_fields(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(IMAGE_POINTER, filenames=["img2.PNG"], size_bytes=len(png), width=1, height=1)
+        conversation = chatmd.parse_share_html(html)
+        part = conversation.messages[0].parts[0]
+        self.assertEqual(
+            part,
+            chatmd.ImagePart(
+                IMAGE_POINTER,
+                file_id="file_example",
+                shared_conversation_id="example",
+                filename="img2.PNG",
+                mime_type="image/png",
+                size_bytes=len(png),
+                width=1,
+                height=1,
+            ),
+        )
+
+    def test_cookie_aware_session_spans_share_fetch_and_resolution(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+        session = RecordingSession(html, resolve_payload(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        images = chatmd.acquire_images(conversation, session, SOURCE_URL)
+        self.assertEqual(session.calls[0], SOURCE_URL)
+        self.assertTrue(any("/backend-api/files/download/file_example" in url for url in session.calls))
+        self.assertIn(BLOB_URL, session.calls)
+        self.assertEqual(session.calls.index(SOURCE_URL), 0)
+        self.assertLess(
+            next(i for i, url in enumerate(session.calls) if "/backend-api/files/download/" in url),
+            session.calls.index(BLOB_URL),
+        )
+        self.assertEqual(images[0].data, png)
+
+    def test_successful_image_acquisition_writes_relative_markdown_asset(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+        session = RecordingSession(html, resolve_payload(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        images = chatmd.acquire_images(conversation, session, SOURCE_URL)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                output = chatmd.write_markdown(conversation, SOURCE_URL, images=images)
+            markdown = output.read_text(encoding="utf-8")
+            asset = output.parent / "Images-images" / "01-img2.PNG"
+            self.assertTrue(asset.is_file())
+            self.assertEqual(asset.read_bytes(), png)
+            self.assertIn("![img2.PNG](Images-images/01-img2.PNG)", markdown)
+            self.assertNotIn("[Image in original conversation]", markdown)
+            assert_no_secrets(self, markdown, *asset.parent.iterdir(), output.name)
+
+    def test_multiple_images_receive_deterministic_non_colliding_names(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(
+            IMAGE_POINTER,
+            SECOND_IMAGE_POINTER,
+            filenames=["img2.PNG", "img2.PNG"],
+            size_bytes=len(png),
+            width=1,
+            height=1,
+        )
+        session = RecordingSession(html, resolve_payload(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        images = chatmd.acquire_images(conversation, session, SOURCE_URL)
+        self.assertEqual([image.stored_name for image in images], ["01-img2.PNG", "02-img2.PNG"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                output = chatmd.write_markdown(conversation, SOURCE_URL, images=images)
+            markdown = output.read_text(encoding="utf-8")
+            directory = output.parent / "Images-images"
+            self.assertEqual(
+                sorted(path.name for path in directory.iterdir()),
+                ["01-img2.PNG", "02-img2.PNG"],
+            )
+            self.assertIn("![img2.PNG](Images-images/01-img2.PNG)", markdown)
+            self.assertIn("![img2.PNG](Images-images/02-img2.PNG)", markdown)
+
+    def test_backend_resolution_failure_does_not_write_capture(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+        session = RecordingSession(
+            html, resolve_payload(), png, resolve_error=chatmd.ParseError("HTTP 401")
+        )
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                self.assertRaisesRegex(chatmd.ParseError, "backend resolution failed"),
+            ):
+                chatmd.write_markdown(
+                    conversation,
+                    SOURCE_URL,
+                    images=chatmd.acquire_images(conversation, session, SOURCE_URL),
+                )
+            self.assertEqual(list(root.rglob("*")), [])
+
+        session = RecordingSession(html, json.dumps({"status": "error"}).encode(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with self.assertRaisesRegex(chatmd.ParseError, "backend resolution failed"):
+            chatmd.acquire_images(conversation, session, SOURCE_URL)
+
+    def test_blob_download_failure_does_not_write_capture(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+        session = RecordingSession(
+            html, resolve_payload(), png, blob_error=chatmd.ParseError("HTTP 403")
+        )
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                self.assertRaisesRegex(chatmd.ParseError, "image download failed"),
+            ):
+                chatmd.acquire_images(conversation, session, SOURCE_URL)
+            self.assertEqual(list(root.rglob("*")), [])
+
+    def test_malformed_asset_pointer_fails_visibly(self) -> None:
+        cases = (
+            "sediment://asset/example",
+            "sediment://file_example",
+            "https://example.com/file_example",
+            "sediment://file_example?shared_conversation_id=",
+            "sediment://file_example?shared_conversation_id=example&extra=1",
+            "sediment://file_example/path?shared_conversation_id=example",
+        )
+        for pointer in cases:
+            with self.subTest(pointer=pointer):
+                with self.assertRaisesRegex(chatmd.ParseError, "asset pointer is malformed"):
+                    chatmd.parse_image_pointer(pointer)
+                with self.assertRaisesRegex(chatmd.ParseError, "asset pointer is malformed"):
+                    chatmd.parse_share_html(image_share_html(pointer))
+
+    def test_expected_size_and_dimension_mismatches_fail_visibly(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png) + 1, width=1, height=1)
+        session = RecordingSession(html, resolve_payload(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with self.assertRaisesRegex(chatmd.ParseError, "size does not match share metadata"):
+            chatmd.acquire_images(conversation, session, SOURCE_URL)
+
+        html = image_share_html(size_bytes=len(png), width=9, height=1)
+        session = RecordingSession(html, resolve_payload(), png)
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with self.assertRaisesRegex(chatmd.ParseError, "dimensions do not match share metadata"):
+            chatmd.acquire_images(conversation, session, SOURCE_URL)
+
+        html = image_share_html(size_bytes=len(b"not-a-png"), width=1, height=1)
+        session = RecordingSession(html, resolve_payload(), b"not-a-png")
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with self.assertRaisesRegex(chatmd.ParseError, "dimensions could not be verified"):
+            chatmd.acquire_images(conversation, session, SOURCE_URL)
+
+        with self.assertRaisesRegex(chatmd.ParseError, "size_bytes is malformed"):
+            chatmd.parse_share_html(image_share_html(size_bytes=0, width=1, height=1))
+
+        html = image_share_html(size_bytes=None, width=None, height=None)
+        session = RecordingSession(html, resolve_payload(), b"")
+        conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
+        with self.assertRaisesRegex(chatmd.ParseError, "visible image is empty"):
+            chatmd.acquire_images(conversation, session, SOURCE_URL)
+
+    def test_unpreserved_image_does_not_publish_markdown(self) -> None:
+        conversation = chatmd.Conversation(
+            "Missing image",
+            (chatmd.Message("user", "multimodal_text", (
+                chatmd.ImagePart(IMAGE_POINTER, file_id="file_example", shared_conversation_id="example"),
+            )),),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                self.assertRaisesRegex(chatmd.ParseError, "visible image was not preserved"),
+            ):
+                chatmd.write_markdown(conversation, SOURCE_URL)
+            self.assertEqual(list(root.rglob("*")), [])
+
+    def test_text_only_capture_does_not_create_image_directory(self) -> None:
+        conversation = user_conversation("Vault export", "exact source text")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                output = chatmd.write_markdown(conversation, SOURCE_URL)
+            self.assertEqual(output.name, "Vault export.md")
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                chatmd.serialize_conversation(conversation, SOURCE_URL),
+            )
+            self.assertEqual([path.name for path in output.parent.iterdir()], ["Vault export.md"])
+            self.assertFalse((output.parent / "Vault export-images").exists())
+
+    def test_main_image_failure_does_not_emit_capture_complete(self) -> None:
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+        conversation = chatmd.parse_share_html(html)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+            patch("chatmd.parse_share", return_value=conversation),
+            patch(
+                "chatmd.acquire_images",
+                side_effect=chatmd.ParseError("visible image backend resolution failed"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            chatmd.main([SOURCE_URL])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(markdown_files(Path(temporary)), [])
+        assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
+        assert_no_secrets(self, stdout.getvalue(), stderr.getvalue())
+
+
 class ClipboardTests(unittest.TestCase):
     def test_zero_argument_uses_valid_clipboard_share_url(self) -> None:
         source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
@@ -921,8 +1358,8 @@ class ClipboardTests(unittest.TestCase):
         ):
             self.assertEqual(chatmd.main([]), 0)
 
-        parse_share.assert_called_once_with(source_url)
-        write_markdown.assert_called_once_with(conversation, source_url)
+        parse_share.assert_called_once_with(source_url, ANY)
+        write_markdown.assert_called_once_with(conversation, source_url, images=())
         self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
 
     def test_explicit_url_does_not_read_clipboard(self) -> None:
@@ -936,7 +1373,7 @@ class ClipboardTests(unittest.TestCase):
         ):
             self.assertEqual(chatmd.main([SOURCE_URL]), 0)
         read_clipboard.assert_not_called()
-        parse_share.assert_called_once_with(SOURCE_URL)
+        parse_share.assert_called_once_with(SOURCE_URL, ANY)
 
     def test_clipboard_failures_are_nonzero_without_capture_or_success_output(self) -> None:
         cases = (

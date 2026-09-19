@@ -13,6 +13,8 @@ in CHAT-D1 is not the current output format.
 Given one public ChatGPT share URL, ChatMD fetches the share over ordinary HTTP,
 reconstructs the active visible conversation from ChatGPT's structured share
 data, and writes a deterministic Markdown file into a local vault directory.
+Supported visible user images are stored beside that Markdown file as the
+share-visible representation.
 
 It is a capture boundary, not a knowledge-processing system. Successful captures
 currently go to:
@@ -82,10 +84,12 @@ portable.
 - ChatMD does not use an LLM to rewrite, summarize, or clean up source content.
 - Existing files are never silently overwritten.
 - Filename collisions keep the original file and write a deterministic suffix
-  such as `conversation-2.md`.
+  such as `conversation-2.md`. Matching image directories use the same suffix.
 - Empty, whitespace-only, and other contentless exports are rejected.
-- Failed fetch, parse, conversion, or filesystem operations do not create a
-  successful-looking capture.
+- Failed fetch, parse, conversion, image preservation, or filesystem operations
+  do not create a successful-looking capture.
+- A supported visible image that cannot be preserved fails the capture instead
+  of writing Markdown that implies the visual evidence was saved.
 - The post-capture result is printed only after persistence. It reports
   `CAPTURE COMPLETE`, the exact file that was written, the original share URL,
   and an explicit warning that the shared link still exists.
@@ -94,7 +98,10 @@ portable.
 
 Year and month directories come from the local capture date and are created when
 missing. The filename is derived from the conversation title, with a
-filesystem-safe fallback of `conversation.md`.
+filesystem-safe fallback of `conversation.md`. When the share contains
+supported visible images, ChatMD also writes a sibling
+`<filename>-images/` directory and links those files from the Markdown with
+portable relative image paths.
 
 ## How it works
 
@@ -102,6 +109,7 @@ filesystem-safe fallback of `conversation.md`.
 public share URL
   -> structured ChatGPT share data
   -> active visible conversation
+  -> share-visible image bytes
   -> normalized model
   -> deterministic Markdown
   -> validated local capture
@@ -144,7 +152,8 @@ Preserved:
 - source-authored Markdown, code fences, tables, links, lists, and whitespace
 - inline citation markers as they appear in the source text
 - visible file attachments as `[File: <filename>]` at their original position
-- images as `[Image in original conversation]` at their original position
+- supported visible user images as locally preserved files, referenced from the
+  Markdown capture with portable relative image links at their original position
 
 Intentionally excluded:
 
@@ -155,11 +164,14 @@ Intentionally excluded:
 - UI-only follow-up controls
 - hidden citation internals
 
-Image and file assets are not downloaded. The placeholders above are the current
-accepted representation.
+Supported visible images are downloaded during capture and stored beside the
+Markdown file. What is preserved is the share-visible representation. ChatGPT
+may sanitize or resize that representation, so original upload bytes are not
+guaranteed. File attachments remain placeholders; they are not downloaded.
 
 Unknown visible roles, content types, or multimodal parts fail with a clear
-error instead of being silently dropped.
+error instead of being silently dropped. A supported visible image that cannot
+be preserved fails the capture.
 
 ## Safety and failure behavior
 
@@ -173,6 +185,9 @@ explicit argument, or a copied `https://chatgpt.com/share/...` URL from the
 macOS clipboard when no URL is supplied. Clipboard-mode validation is stricter
 than the explicit HTTP(S) URL check. A successful capture does not revoke the
 public share; the CLI result tells the user to revoke it in ChatGPT settings.
+Image bytes are preserved before that revocation is possible. Cookies and
+short-lived signed asset URLs are used only during the capture operation and
+are not written into the Markdown or stored as evidence.
 
 ## Development and verification
 
@@ -205,7 +220,9 @@ that tool was authorized, verified, and accepted.
 
 ChatMD does not yet provide:
 
-- image or file asset downloading
+- file attachment downloading
+- original upload bytes when ChatGPT exposes only a sanitized or resized
+  share-visible image
 - portable capture-root configuration
 - public package publishing, Homebrew distribution, or release automation
 - LLM summarization, rewriting, or knowledge extraction

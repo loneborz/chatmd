@@ -68,6 +68,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 ## Owned Work
 
 - [[Projects/CHAT-P1/Work/CHAT-1|CHAT-1]]: Prove lossless ChatGPT share parsing
+- [[Projects/CHAT-P1/Work/CHAT-10|CHAT-10]]: Preserve share-visible images during capture
 - [[Projects/CHAT-P1/Work/CHAT-2|CHAT-2]]: Implement deterministic ChatGPT share parsing core
 - [[Projects/CHAT-P1/Work/CHAT-3|CHAT-3]]: Extend canonical conversation model with title and citations
 - [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow

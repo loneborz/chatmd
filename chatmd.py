@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import struct
 import subprocess
 import tempfile
 import unicodedata
@@ -12,15 +14,21 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.message import Message as Headers
 from html.parser import HTMLParser
+from http.cookiejar import CookieJar
 from itertools import pairwise
 from pathlib import Path
 from typing import Protocol, Self
-from urllib.parse import urlsplit
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("
 CAPTURE_ROOT = Path("/Users/marwan/My vault/Sources/ChatMD")
+USER_AGENT = "Mozilla/5.0 (compatible; ChatMD/0.1)"
+_SEDIMENT_FILE = re.compile(r"^file_[A-Za-z0-9_-]+$")
+_SHARE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class ParseError(ValueError):
@@ -41,6 +49,20 @@ class TextPart:
 class ImagePart:
     asset_pointer: str
     source_type: str = "image_asset_pointer"
+    file_id: str | None = None
+    shared_conversation_id: str | None = None
+    filename: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass(frozen=True)
+class AcquiredImage:
+    filename: str
+    stored_name: str
+    data: bytes
 
 
 @dataclass(frozen=True)
@@ -155,6 +177,45 @@ class HydrationGraph:
         if not isinstance(value, list):
             raise ParseError("expected an encoded list")
         return value
+
+
+class CaptureSession(Protocol):
+    def fetch_text(self, url: str) -> str: ...
+
+    def get_bytes(self, url: str) -> bytes: ...
+
+
+class ShareSession:
+    """Cookie-aware HTTP session that exists only for one capture."""
+
+    def __init__(
+        self,
+        opener: Callable[[str | Request], _ShareResponse] | None = None,
+    ) -> None:
+        self.cookies = CookieJar()
+        if opener is None:
+            self._open = build_opener(HTTPCookieProcessor(self.cookies)).open
+        else:
+            self._open = opener
+
+    def fetch_text(self, url: str) -> str:
+        body, headers = self._request(url)
+        charset = headers.get_content_charset() or "utf-8"
+        return body.decode(charset)
+
+    def get_bytes(self, url: str) -> bytes:
+        body, _headers = self._request(url)
+        return body
+
+    def _request(self, url: str) -> tuple[bytes, Headers]:
+        request = Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with self._open(request) as response:
+                return response.read(), response.headers
+        except HTTPError as error:
+            raise ParseError(f"HTTP {error.code}") from error
+        except URLError as error:
+            raise ParseError("request failed") from error
 
 
 def fetch_share(url: str, opener: Callable[[str], _ShareResponse] = urlopen) -> str:
@@ -296,6 +357,114 @@ def project_visible(graph: HydrationGraph, branch: tuple[int, ...]) -> tuple[int
 def _optional_text(graph: HydrationGraph, obj_ref: int, field: str) -> str | None:
     value = graph.field(obj_ref, field)
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _optional_positive_int(graph: HydrationGraph, obj_ref: object, field: str) -> int | None:
+    value = graph.field(obj_ref, field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ParseError(f"visible image {field} is malformed")
+    return value
+
+
+def parse_image_pointer(pointer: str) -> tuple[str, str]:
+    try:
+        parsed = urlsplit(pointer)
+    except ValueError as error:
+        raise ParseError("visible image asset pointer is malformed") from error
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    share_ids = query.get("shared_conversation_id", [])
+    extra = set(query) - {"shared_conversation_id"}
+    if (
+        parsed.scheme != "sediment"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.fragment
+        or extra
+        or len(share_ids) != 1
+        or not _SEDIMENT_FILE.fullmatch(parsed.netloc)
+        or not _SHARE_ID.fullmatch(share_ids[0])
+    ):
+        raise ParseError("visible image asset pointer is malformed")
+    return parsed.netloc, share_ids[0]
+
+
+def _png_dimensions(data: bytes) -> tuple[int, int] | None:
+    if len(data) < 24 or data[:8] != _PNG_SIGNATURE:
+        return None
+    length, chunk_type = struct.unpack(">I4s", data[8:16])
+    if chunk_type != b"IHDR" or length != 13 or len(data) < 24:
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _image_attachments(graph: HydrationGraph, message_ref: int) -> dict[str, int]:
+    metadata_ref = graph.field_ref(message_ref, "metadata")
+    attachments_ref = graph.field_ref(metadata_ref, "attachments")
+    if attachments_ref is None:
+        return {}
+    attachments: dict[str, int] = {}
+    for attachment_ref in graph.list_refs(attachments_ref):
+        if not isinstance(attachment_ref, int) or not isinstance(graph.value(attachment_ref), dict):
+            raise ParseError("visible image attachment metadata is malformed")
+        attachment_id = graph.field(attachment_ref, "id")
+        if isinstance(attachment_id, str) and attachment_id:
+            attachments[attachment_id] = attachment_ref
+    return attachments
+
+
+def _normalize_image_part(
+    graph: HydrationGraph,
+    part_ref: int,
+    attachments: dict[str, int],
+) -> ImagePart:
+    pointer = graph.field(part_ref, "asset_pointer")
+    if not isinstance(pointer, str):
+        raise ParseError("visible image asset pointer is malformed")
+    file_id, shared_conversation_id = parse_image_pointer(pointer)
+    size_bytes = _optional_positive_int(graph, part_ref, "size_bytes")
+    width = _optional_positive_int(graph, part_ref, "width")
+    height = _optional_positive_int(graph, part_ref, "height")
+    filename: str | None = None
+    mime_type: str | None = None
+    attachment_ref = attachments.get(file_id)
+    if attachment_ref is not None:
+        name = graph.field(attachment_ref, "name")
+        if isinstance(name, str) and name:
+            filename = name
+        mime = graph.field(attachment_ref, "mime_type")
+        if isinstance(mime, str) and mime:
+            mime_type = mime
+        attachment_size = _optional_positive_int(graph, attachment_ref, "size")
+        attachment_width = _optional_positive_int(graph, attachment_ref, "width")
+        attachment_height = _optional_positive_int(graph, attachment_ref, "height")
+        if attachment_size is not None and size_bytes is not None and attachment_size != size_bytes:
+            raise ParseError("visible image size metadata does not match")
+        if attachment_width is not None and width is not None and attachment_width != width:
+            raise ParseError("visible image dimension metadata does not match")
+        if attachment_height is not None and height is not None and attachment_height != height:
+            raise ParseError("visible image dimension metadata does not match")
+        if size_bytes is None:
+            size_bytes = attachment_size
+        if width is None:
+            width = attachment_width
+        if height is None:
+            height = attachment_height
+    return ImagePart(
+        pointer,
+        file_id=file_id,
+        shared_conversation_id=shared_conversation_id,
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        width=width,
+        height=height,
+    )
 
 
 @dataclass(frozen=True)
@@ -505,6 +674,7 @@ def normalize(
         ):
             raise ParseError("projected message is malformed")
 
+        attachments = _image_attachments(graph, message_ref)
         parts: list[TextPart | ImagePart] = []
         for part_ref in graph.list_refs(parts_ref):
             part = graph.value(part_ref)
@@ -512,14 +682,11 @@ def normalize(
                 parts.append(TextPart(part))
                 continue
             if isinstance(part, dict):
+                if not isinstance(part_ref, int):
+                    raise ParseError("projected message is malformed")
                 part_type = graph.field(part_ref, "content_type")
-                pointer = graph.field(part_ref, "asset_pointer")
-                if (
-                    content_type == "multimodal_text"
-                    and part_type == "image_asset_pointer"
-                    and isinstance(pointer, str)
-                ):
-                    parts.append(ImagePart(pointer))
+                if content_type == "multimodal_text" and part_type == "image_asset_pointer":
+                    parts.append(_normalize_image_part(graph, part_ref, attachments))
                     continue
                 raise UnsupportedContentError(f"unsupported visible multimodal part type {part_type!r}")
             raise UnsupportedContentError(f"unsupported visible multimodal part {type(part).__name__}")
@@ -544,11 +711,111 @@ def parse_share(url: str, fetcher: Callable[[str], str] = fetch_share) -> Conver
     return parse_share_html(fetcher(url))
 
 
-_IMAGE_PLACEHOLDER = "[Image in original conversation]"
 _ROLE_HEADINGS = {"user": "User", "assistant": "ChatGPT"}
 
 
-def serialize_conversation(conversation: Conversation, source_url: str) -> str:
+def _image_parts(conversation: Conversation) -> tuple[ImagePart, ...]:
+    return tuple(
+        part
+        for message in conversation.messages
+        for part in message.parts
+        if isinstance(part, ImagePart)
+    )
+
+
+def _asset_resolution_url(source_url: str, file_id: str, shared_conversation_id: str) -> str:
+    parsed = urlsplit(source_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ParseError("visible image backend resolution failed")
+    path = f"/backend-api/files/download/{quote(file_id, safe='')}"
+    query = urlencode({"shared_conversation_id": shared_conversation_id})
+    return urlunsplit((parsed.scheme, parsed.netloc, path, query, ""))
+
+
+def _resolve_download_url(payload: bytes) -> tuple[str, str | None]:
+    try:
+        body = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ParseError("visible image backend resolution failed") from error
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise ParseError("visible image backend resolution failed")
+    download_url = body.get("download_url")
+    if not isinstance(download_url, str):
+        raise ParseError("visible image backend resolution failed")
+    try:
+        parsed = urlsplit(download_url)
+    except ValueError as error:
+        raise ParseError("visible image backend resolution failed") from error
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ParseError("visible image backend resolution failed")
+    file_name = body.get("file_name")
+    filename = file_name if isinstance(file_name, str) and file_name else None
+    return download_url, filename
+
+
+def _validate_acquired_bytes(part: ImagePart, data: bytes) -> None:
+    if not data:
+        raise ParseError("visible image is empty")
+    if part.size_bytes is not None and len(data) != part.size_bytes:
+        raise ParseError("visible image size does not match share metadata")
+    if part.width is None and part.height is None:
+        return
+    dimensions = _png_dimensions(data)
+    if dimensions is None:
+        raise ParseError("visible image dimensions could not be verified")
+    width, height = dimensions
+    if part.width is not None and width != part.width:
+        raise ParseError("visible image dimensions do not match share metadata")
+    if part.height is not None and height != part.height:
+        raise ParseError("visible image dimensions do not match share metadata")
+
+
+def acquire_images(
+    conversation: Conversation,
+    session: CaptureSession,
+    source_url: str,
+) -> tuple[AcquiredImage, ...]:
+    parts = _image_parts(conversation)
+    if not parts:
+        return ()
+    width = max(2, len(str(len(parts))))
+    acquired: list[AcquiredImage] = []
+    for index, part in enumerate(parts, start=1):
+        if not part.file_id or not part.shared_conversation_id:
+            raise ParseError("visible image asset pointer is malformed")
+        resolve_url = _asset_resolution_url(source_url, part.file_id, part.shared_conversation_id)
+        try:
+            payload = session.get_bytes(resolve_url)
+        except ParseError as error:
+            raise ParseError("visible image backend resolution failed") from error
+        download_url, resolved_name = _resolve_download_url(payload)
+        try:
+            data = session.get_bytes(download_url)
+        except ParseError as error:
+            raise ParseError("visible image download failed") from error
+        _validate_acquired_bytes(part, data)
+        filename = part.filename or resolved_name or "image"
+        stored_name = f"{index:0{width}d}-{safe_filename(filename, fallback='image')}"
+        acquired.append(AcquiredImage(filename, stored_name, data))
+    return tuple(acquired)
+
+
+def _markdown_image(alt: str, relative_path: str) -> str:
+    escaped_alt = alt.replace("\\", "\\\\").replace("]", "\\]")
+    return f"![{escaped_alt}]({quote(relative_path, safe='/-._')})"
+
+
+def serialize_conversation(
+    conversation: Conversation,
+    source_url: str,
+    images: Sequence[AcquiredImage] = (),
+    asset_directory: str | None = None,
+) -> str:
+    if len(_image_parts(conversation)) != len(images):
+        raise ParseError("visible image was not preserved")
+    if images and not asset_directory:
+        raise ParseError("visible image was not preserved")
+    image_index = 0
     title = conversation.title if conversation.title is not None else "conversation"
     sections = [f"# {title}", f"> Source: {source_url}"]
     for message in conversation.messages:
@@ -561,7 +828,10 @@ def serialize_conversation(conversation: Conversation, source_url: str) -> str:
             if isinstance(part, TextPart):
                 content.append(part.text)
             elif isinstance(part, ImagePart):
-                content.append(_IMAGE_PLACEHOLDER)
+                acquired = images[image_index]
+                image_index += 1
+                relative = f"{asset_directory}/{acquired.stored_name}"
+                content.append(_markdown_image(acquired.filename, relative))
             elif isinstance(part, FilePart):
                 content.append(f"[File: {part.filename}]")
             else:
@@ -572,7 +842,7 @@ def serialize_conversation(conversation: Conversation, source_url: str) -> str:
     return "\n\n".join(sections) + "\n"
 
 
-def safe_filename(title: str | None) -> str:
+def safe_filename(title: str | None, fallback: str = "conversation") -> str:
     candidate = "" if title is None else title
     while candidate:
         trimmed = candidate.strip().strip(".")
@@ -584,7 +854,7 @@ def safe_filename(title: str | None) -> str:
         for char in candidate
     )
     candidate = re.sub(r"\s+", " ", candidate).strip()
-    return candidate or "conversation"
+    return candidate or fallback
 
 
 def _has_meaningful_content(conversation: Conversation) -> bool:
@@ -607,36 +877,18 @@ def _capture_directory(capture_root: Path | None = None) -> Path:
     return root / f"{capture_date:%Y}" / f"{capture_date:%m}"
 
 
-def write_markdown(
-    conversation: Conversation,
-    source_url: str,
-    capture_root: Path | None = None,
-) -> Path:
-    if not _has_meaningful_content(conversation):
-        raise ParseError("conversation has no meaningful content")
-    body = serialize_conversation(conversation, source_url)
-    output_dir = _capture_directory(capture_root)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    target = output_dir / f"{safe_filename(conversation.title)}.md"
+def _write_bytes_exclusive(data: bytes, destination: Path) -> None:
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{target.name}.",
-        dir=output_dir,
+        prefix=f".{destination.name}.",
+        dir=destination.parent,
     )
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as temporary:
+        with os.fdopen(descriptor, "wb") as temporary:
             descriptor = -1
-            temporary.write(body)
+            temporary.write(data)
             temporary.flush()
             os.fsync(temporary.fileno())
-        candidate = target
-        suffix = 2
-        while True:
-            try:
-                os.link(temporary_name, candidate)
-                return candidate.resolve()
-            except FileExistsError:
-                candidate = output_dir / f"{target.stem}-{suffix}{target.suffix}"
-                suffix += 1
+        os.link(temporary_name, destination)
     finally:
         if descriptor != -1:
             os.close(descriptor)
@@ -644,6 +896,80 @@ def write_markdown(
             os.unlink(temporary_name)
         except FileNotFoundError:
             pass
+
+
+def write_markdown(
+    conversation: Conversation,
+    source_url: str,
+    capture_root: Path | None = None,
+    images: Sequence[AcquiredImage] = (),
+) -> Path:
+    if not _has_meaningful_content(conversation):
+        raise ParseError("conversation has no meaningful content")
+    if len(_image_parts(conversation)) != len(images):
+        raise ParseError("visible image was not preserved")
+    output_dir = _capture_directory(capture_root)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base = safe_filename(conversation.title)
+    suffix = 2
+    candidate_stem = base
+    while True:
+        markdown_path = output_dir / f"{candidate_stem}.md"
+        asset_dir_name = f"{candidate_stem}-images" if images else None
+        asset_dir = output_dir / asset_dir_name if asset_dir_name is not None else None
+        if asset_dir is not None and asset_dir.exists():
+            candidate_stem = f"{base}-{suffix}"
+            suffix += 1
+            continue
+        body = serialize_conversation(conversation, source_url, images, asset_dir_name)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{markdown_path.name}.",
+            dir=output_dir,
+        )
+        published: Path | None = None
+        created_assets: Path | None = None
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as temporary:
+                descriptor = -1
+                temporary.write(body)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            try:
+                os.link(temporary_name, markdown_path)
+            except FileExistsError:
+                candidate_stem = f"{base}-{suffix}"
+                suffix += 1
+                continue
+            published = markdown_path
+            if asset_dir is not None:
+                try:
+                    asset_dir.mkdir()
+                except FileExistsError:
+                    os.unlink(markdown_path)
+                    published = None
+                    candidate_stem = f"{base}-{suffix}"
+                    suffix += 1
+                    continue
+                created_assets = asset_dir
+                for acquired in images:
+                    _write_bytes_exclusive(acquired.data, asset_dir / acquired.stored_name)
+            return markdown_path.resolve()
+        except OSError:
+            if created_assets is not None:
+                shutil.rmtree(created_assets, ignore_errors=True)
+            if published is not None:
+                try:
+                    os.unlink(published)
+                except FileNotFoundError:
+                    pass
+            raise
+        finally:
+            if descriptor != -1:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
 
 
 def _read_macos_clipboard(
@@ -744,8 +1070,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             source_url = arguments.url
         _validate_share_url(source_url)
-        conversation = parse_share(source_url)
-        output = write_markdown(conversation, source_url)
+        session = ShareSession()
+        conversation = parse_share(source_url, session.fetch_text)
+        images = acquire_images(conversation, session, source_url)
+        output = write_markdown(conversation, source_url, images=images)
         print(_capture_complete_message(output, source_url))
     except (OSError, ParseError, ValueError) as error:
         parser.error(str(error))
