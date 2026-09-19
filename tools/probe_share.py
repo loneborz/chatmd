@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
-import argparse
-import json
-
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("

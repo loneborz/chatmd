@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html.parser import HTMLParser
+import argparse
 import json
-from typing import Callable
+import os
+import re
+import tempfile
+import unicodedata
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from email.message import Message as Headers
+from html.parser import HTMLParser
+from itertools import pairwise
+from pathlib import Path
+from typing import Protocol, Self
 from urllib.parse import urlsplit
 from urllib.request import urlopen
-
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("
@@ -33,6 +41,12 @@ class ImagePart:
 
 
 @dataclass(frozen=True)
+class FilePart:
+    filename: str
+    source_type: str = "file"
+
+
+@dataclass(frozen=True)
 class Citation:
     start_byte: int
     end_byte: int
@@ -47,7 +61,7 @@ class Citation:
 class Message:
     role: str
     source_type: str
-    parts: tuple[TextPart | ImagePart, ...]
+    parts: tuple[TextPart | ImagePart | FilePart, ...]
     citations: tuple[Citation, ...] = ()
 
 
@@ -55,6 +69,16 @@ class Message:
 class Conversation:
     title: str | None
     messages: tuple[Message, ...]
+
+
+class _ShareResponse(Protocol):
+    headers: Headers
+
+    def read(self) -> bytes: ...
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(self, *args: object) -> None: ...
 
 
 class _ScriptParser(HTMLParser):
@@ -130,7 +154,7 @@ class HydrationGraph:
         return value
 
 
-def fetch_share(url: str, opener: Callable[..., object] = urlopen) -> str:
+def fetch_share(url: str, opener: Callable[[str], _ShareResponse] = urlopen) -> str:
     with opener(url) as response:
         body = response.read()
         charset = response.headers.get_content_charset() or "utf-8"
@@ -271,6 +295,117 @@ def _optional_text(graph: HydrationGraph, obj_ref: int, field: str) -> str | Non
     return value if isinstance(value, str) and value.strip() else None
 
 
+@dataclass(frozen=True)
+class _VisibleAnnotation:
+    start: int
+    end: int
+    filename: str | None = None
+
+
+def _reference_anchor(
+    graph: HydrationGraph, reference_ref: int, text: str
+) -> tuple[int, int]:
+    start = graph.field(reference_ref, "start_idx")
+    end = graph.field(reference_ref, "end_idx")
+    marker = graph.field(reference_ref, "matched_text")
+    if (
+        not isinstance(start, int)
+        or isinstance(start, bool)
+        or not isinstance(end, int)
+        or isinstance(end, bool)
+        or start < 0
+        or end <= start
+        or end > len(text)
+        or not isinstance(marker, str)
+    ):
+        raise ParseError("active citation anchor or marker is malformed")
+    if text[start:end] != marker:
+        raise ParseError("active citation marker does not match its anchor")
+    return start, end
+
+
+def _visible_annotations(
+    graph: HydrationGraph, message_ref: int, text: str
+) -> tuple[_VisibleAnnotation, ...]:
+    metadata_ref = graph.field_ref(message_ref, "metadata")
+    references_ref = graph.field_ref(metadata_ref, "content_references")
+    if references_ref is None:
+        return ()
+
+    annotations: list[_VisibleAnnotation] = []
+    for reference_ref in graph.list_refs(references_ref):
+        if not isinstance(reference_ref, int) or not isinstance(graph.value(reference_ref), dict):
+            raise ParseError("content reference is malformed")
+        reference_type = graph.field(reference_ref, "type")
+        if reference_type in {"sources_footnote", "hidden", "grouped_webpages"}:
+            continue
+        if reference_type == "file":
+            start, end = _reference_anchor(graph, reference_ref, text)
+            filename = graph.field(reference_ref, "name")
+            if not isinstance(filename, str) or not filename:
+                raise ParseError("visible file attachment filename is missing")
+            annotations.append(_VisibleAnnotation(start, end, filename))
+            continue
+        if reference_type == "followup_a":
+            start, end = _reference_anchor(graph, reference_ref, text)
+            annotations.append(_VisibleAnnotation(start, end))
+            continue
+        if graph.field_ref(reference_ref, "matched_text") is not None:
+            raise UnsupportedContentError(
+                f"unsupported visible citation type {reference_type!r}"
+            )
+
+    annotations.sort(key=lambda item: (item.start, item.end))
+    for previous, current in pairwise(annotations):
+        if current.start < previous.end:
+            raise ParseError("visible annotation ranges overlap")
+    return tuple(annotations)
+
+
+def _project_parts(
+    parts: list[TextPart | ImagePart], annotations: tuple[_VisibleAnnotation, ...]
+) -> tuple[TextPart | ImagePart | FilePart, ...]:
+    if not annotations:
+        return tuple(parts)
+
+    projected: list[TextPart | ImagePart | FilePart] = []
+    annotation_index = 0
+    text_offset = 0
+    for part in parts:
+        if not isinstance(part, TextPart):
+            projected.append(part)
+            continue
+
+        part_start = text_offset
+        part_end = part_start + len(part.text)
+        if annotation_index < len(annotations) and annotations[annotation_index].start < part_start:
+            raise ParseError("visible annotation anchor is outside text parts")
+        part_annotations: list[_VisibleAnnotation] = []
+        while annotation_index < len(annotations) and annotations[annotation_index].start < part_end:
+            annotation = annotations[annotation_index]
+            if annotation.end > part_end:
+                raise ParseError("visible annotation crosses a content part boundary")
+            part_annotations.append(annotation)
+            annotation_index += 1
+
+        cursor = 0
+        for annotation in part_annotations:
+            local_start = annotation.start - part_start
+            local_end = annotation.end - part_start
+            if local_start > cursor:
+                projected.append(TextPart(part.text[cursor:local_start]))
+            if annotation.filename is not None:
+                projected.append(FilePart(annotation.filename))
+            cursor = local_end
+        if cursor < len(part.text):
+            projected.append(TextPart(part.text[cursor:]))
+        text_offset = part_end
+
+    if annotation_index != len(annotations):
+        raise ParseError("visible annotation anchor is outside text parts")
+    return tuple(projected)
+
+
 def _citation_items(graph: HydrationGraph, reference_ref: int) -> list[int]:
     items_ref = graph.field_ref(reference_ref, "items")
     if items_ref is None:
@@ -300,7 +435,7 @@ def _normalize_citations(graph: HydrationGraph, message_ref: int, text: str) -> 
         if not isinstance(reference_ref, int) or not isinstance(graph.value(reference_ref), dict):
             raise ParseError("content reference is malformed")
         reference_type = graph.field(reference_ref, "type")
-        if reference_type == "sources_footnote":
+        if reference_type in {"sources_footnote", "hidden", "file", "followup_a"}:
             continue
         if reference_type != "grouped_webpages":
             if graph.field_ref(reference_ref, "matched_text") is not None:
@@ -316,22 +451,10 @@ def _normalize_citations(graph: HydrationGraph, message_ref: int, text: str) -> 
         items = _citation_items(graph, reference_ref)
         if not items:
             continue
-        start = graph.field(reference_ref, "start_idx")
-        end = graph.field(reference_ref, "end_idx")
         marker = graph.field(reference_ref, "matched_text")
-        if (
-            not isinstance(start, int)
-            or isinstance(start, bool)
-            or not isinstance(end, int)
-            or isinstance(end, bool)
-            or start < 0
-            or end <= start
-            or end > len(text)
-            or not isinstance(marker, str)
-        ):
+        start, end = _reference_anchor(graph, reference_ref, text)
+        if not isinstance(marker, str):
             raise ParseError("active citation anchor or marker is malformed")
-        if text[start:end] != marker:
-            raise ParseError("active citation marker does not match its anchor")
         start_byte = len(text[:start].encode("utf-8"))
         end_byte = len(text[:end].encode("utf-8"))
 
@@ -370,7 +493,13 @@ def normalize(
         role = graph.field(author_ref, "role")
         content_type = graph.field(content_ref, "content_type")
         parts_ref = graph.field_ref(content_ref, "parts")
-        if role not in {"user", "assistant"} or content_type not in {"text", "multimodal_text"} or parts_ref is None:
+        if (
+            not isinstance(role, str)
+            or role not in {"user", "assistant"}
+            or not isinstance(content_type, str)
+            or content_type not in {"text", "multimodal_text"}
+            or parts_ref is None
+        ):
             raise ParseError("projected message is malformed")
 
         parts: list[TextPart | ImagePart] = []
@@ -391,9 +520,10 @@ def normalize(
                     continue
                 raise UnsupportedContentError(f"unsupported visible multimodal part type {part_type!r}")
             raise UnsupportedContentError(f"unsupported visible multimodal part {type(part).__name__}")
-        text_parts = [part.text for part in parts if isinstance(part, TextPart)]
-        citations = _normalize_citations(graph, message_ref, "".join(text_parts))
-        messages.append(Message(role, content_type, tuple(parts), citations))
+        source_text = "".join(part.text for part in parts if isinstance(part, TextPart))
+        annotations = _visible_annotations(graph, message_ref, source_text)
+        citations = _normalize_citations(graph, message_ref, source_text)
+        messages.append(Message(role, content_type, _project_parts(parts, annotations), citations))
     return Conversation(title, tuple(messages))
 
 
@@ -409,3 +539,106 @@ def parse_share_html(html: str) -> Conversation:
 
 def parse_share(url: str, fetcher: Callable[[str], str] = fetch_share) -> Conversation:
     return parse_share_html(fetcher(url))
+
+
+_IMAGE_PLACEHOLDER = "[Image in original conversation]"
+_ROLE_HEADINGS = {"user": "User", "assistant": "ChatGPT"}
+
+
+def serialize_conversation(conversation: Conversation, source_url: str) -> str:
+    title = conversation.title if conversation.title is not None else "conversation"
+    sections = [f"# {title}", f"> Source: {source_url}"]
+    for message in conversation.messages:
+        try:
+            role_heading = _ROLE_HEADINGS[message.role]
+        except KeyError as error:
+            raise ParseError(f"unsupported visible message role {message.role!r}") from error
+        content: list[str] = []
+        for part in message.parts:
+            if isinstance(part, TextPart):
+                content.append(part.text)
+            elif isinstance(part, ImagePart):
+                content.append(_IMAGE_PLACEHOLDER)
+            elif isinstance(part, FilePart):
+                content.append(f"[File: {part.filename}]")
+            else:
+                raise UnsupportedContentError(
+                    f"unsupported normalized conversation part {type(part).__name__}"
+                )
+        sections.extend(("---", f"**{role_heading}**", "".join(content)))
+    return "\n\n".join(sections) + "\n"
+
+
+def safe_filename(title: str | None) -> str:
+    candidate = "" if title is None else title
+    while candidate:
+        trimmed = candidate.strip().strip(".")
+        if trimmed == candidate:
+            break
+        candidate = trimmed
+    candidate = "".join(
+        "_" if char in "/\\" or unicodedata.category(char) == "Cc" else char
+        for char in candidate
+    )
+    candidate = re.sub(r"\s+", " ", candidate).strip()
+    return candidate or "conversation"
+
+
+def write_markdown(
+    conversation: Conversation,
+    source_url: str,
+    desktop: Path | None = None,
+) -> Path:
+    body = serialize_conversation(conversation, source_url)
+    output_dir = Path.home() / "Desktop" if desktop is None else desktop
+    target = output_dir / f"{safe_filename(conversation.title)}.md"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        dir=output_dir,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as temporary:
+            descriptor = -1
+            temporary.write(body)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        try:
+            os.link(temporary_name, target)
+        except FileExistsError as error:
+            raise FileExistsError(f"output file already exists: {target}") from error
+        return target
+    finally:
+        if descriptor != -1:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+
+
+def _validate_share_url(url: str) -> None:
+    if not url or any(ord(char) < 32 or ord(char) == 127 for char in url):
+        raise ValueError("expected an absolute HTTP(S) share URL")
+    try:
+        parsed = urlsplit(url)
+    except ValueError as error:
+        raise ValueError("invalid share URL") from error
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("expected an absolute HTTP(S) share URL")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="chatmd")
+    parser.add_argument("url", help="one public ChatGPT share URL")
+    arguments = parser.parse_args(argv)
+    try:
+        _validate_share_url(arguments.url)
+        conversation = parse_share(arguments.url)
+        write_markdown(conversation, arguments.url)
+    except (OSError, ParseError, ValueError) as error:
+        parser.error(str(error))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

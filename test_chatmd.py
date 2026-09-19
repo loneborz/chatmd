@@ -1,9 +1,13 @@
-from email.message import Message as Headers
+import io
 import json
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from email.message import Message as Headers
+from pathlib import Path
+from unittest.mock import patch
 
 import chatmd
-
 
 MISSING = object()
 
@@ -296,6 +300,63 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(message.parts, (chatmd.TextPart(text),))
         self.assertEqual(message.citations, ())
 
+    def test_hidden_reference_is_excluded_without_rewriting_message_text(self) -> None:
+        marker = "\ue200memcite\ue201"
+        text = f"before {marker} after"
+        reference = {
+            "type": "hidden",
+            "matched_text": marker,
+            "start_idx": len("before "),
+            "end_idx": len("before ") + len(marker),
+            "invalid": False,
+            "refs": [],
+            "safe_urls": [],
+        }
+
+        message = chatmd.parse_share_html(citation_fixture(text, [reference])).messages[1]
+
+        self.assertEqual(message.parts, (chatmd.TextPart(text),))
+        self.assertEqual(message.citations, ())
+
+    def test_file_reference_becomes_a_structural_part_at_its_anchor(self) -> None:
+        marker = "\ue200filecite\ue202turn0file0\ue201"
+        text = f"before {marker} after"
+        reference = {
+            "type": "file",
+            "matched_text": marker,
+            "start_idx": len("before "),
+            "end_idx": len("before ") + len(marker),
+            "name": "notes.md",
+        }
+
+        message = chatmd.parse_share_html(citation_fixture(text, [reference])).messages[1]
+
+        self.assertEqual(message.parts, (
+            chatmd.TextPart("before "),
+            chatmd.FilePart("notes.md"),
+            chatmd.TextPart(" after"),
+        ))
+        self.assertEqual(message.citations, ())
+
+    def test_followup_reference_removes_only_its_anchored_control_text(self) -> None:
+        label = "Ask a follow-up"
+        text = f"before {label} after"
+        reference = {
+            "type": "followup_a",
+            "matched_text": label,
+            "start_idx": len("before "),
+            "end_idx": len("before ") + len(label),
+            "prompt_text": "Ask a follow-up with more detail",
+        }
+
+        message = chatmd.parse_share_html(citation_fixture(text, [reference])).messages[1]
+
+        self.assertEqual(message.parts, (
+            chatmd.TextPart("before "),
+            chatmd.TextPart(" after"),
+        ))
+        self.assertEqual(message.citations, ())
+
     def test_optional_citation_fields_are_not_synthesized(self) -> None:
         marker = "\ue200cite\ue202source\ue201"
         citation = chatmd.parse_share_html(citation_fixture(
@@ -323,13 +384,12 @@ class ParserTests(unittest.TestCase):
             "URL is not absolute": grouped_reference(marker, 0, len(marker), url="relative/path"),
         }
         for error, reference in cases.items():
-            with self.subTest(error=error):
-                with self.assertRaisesRegex(chatmd.ParseError, error):
-                    chatmd.parse_share_html(citation_fixture(marker, [reference]))
+            with self.subTest(error=error), self.assertRaisesRegex(chatmd.ParseError, error):
+                chatmd.parse_share_html(citation_fixture(marker, [reference]))
 
     def test_unsupported_anchored_reference_type_fails_visibly(self) -> None:
         marker = "\ue200cite\ue202source\ue201"
-        reference = {"type": "future_citation", "matched_text": marker}
+        reference: dict[str, object] = {"type": "future_citation", "matched_text": marker}
         with self.assertRaisesRegex(chatmd.UnsupportedContentError, "citation type"):
             chatmd.parse_share_html(citation_fixture(marker, [reference]))
 
@@ -425,6 +485,167 @@ class ParserTests(unittest.TestCase):
 
         self.assertEqual(chatmd.fetch_share("https://chatgpt.com/share/example", opener), "héllo")
         self.assertEqual(calls, ["https://chatgpt.com/share/example"])
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_serialization_preserves_structure_and_source_content(self) -> None:
+        user_text = "  # existing\n\n```python\nprint('exact')\n```\n\n> quoted\n\n---\n"
+        assistant_text = "answer\n\n---\n"
+        source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
+        conversation = chatmd.Conversation(
+            "  Exact title  ",
+            (
+                chatmd.Message("user", "text", (chatmd.TextPart(user_text),)),
+                chatmd.Message("assistant", "text", (chatmd.TextPart(assistant_text),)),
+            ),
+        )
+
+        expected = "\n\n".join((
+            "#   Exact title  ",
+            f"> Source: {source_url}",
+            "---",
+            "**User**",
+            user_text,
+            "---",
+            "**ChatGPT**",
+            assistant_text,
+        )) + "\n"
+        result = chatmd.serialize_conversation(conversation, source_url)
+
+        self.assertEqual(result, expected)
+        self.assertEqual(result.count("\n\n---\n\n"), 3)
+        self.assertIn(user_text, result)
+        self.assertIn(assistant_text, result)
+
+    def test_serialization_preserves_image_position_and_repeated_or_empty_messages(self) -> None:
+        conversation = chatmd.Conversation(
+            None,
+            (
+                chatmd.Message("user", "multimodal_text", (
+                    chatmd.TextPart("before"),
+                    chatmd.ImagePart("sediment://asset/example"),
+                    chatmd.TextPart("after"),
+                )),
+                chatmd.Message("user", "text", ()),
+                chatmd.Message("assistant", "text", (chatmd.TextPart("answer"),)),
+            ),
+        )
+
+        result = chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example")
+
+        self.assertEqual(result.count("**User**"), 2)
+        self.assertEqual(result.count("**ChatGPT**"), 1)
+        self.assertEqual(result.count("\n\n---\n\n"), 3)
+        self.assertIn("before[Image in original conversation]after", result)
+        self.assertIn("after\n\n---\n\n**User**", result)
+        self.assertIn("**User**\n\n\n\n---\n\n**ChatGPT**", result)
+        self.assertTrue(result.endswith("\n"))
+        self.assertEqual(
+            result,
+            chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example"),
+        )
+
+    def test_serialization_emits_file_placeholder_at_structural_part_position(self) -> None:
+        conversation = chatmd.Conversation(
+            "File export",
+            (chatmd.Message("assistant", "text", (
+                chatmd.TextPart("before "),
+                chatmd.FilePart("notes.md"),
+                chatmd.TextPart(" after"),
+            )),),
+        )
+
+        result = chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example")
+
+        self.assertIn("before [File: notes.md] after", result)
+
+    def test_absent_title_uses_only_projection_fallback(self) -> None:
+        conversation = chatmd.Conversation(None, ())
+
+        result = chatmd.serialize_conversation(conversation, "https://chatgpt.com/share/example")
+
+        self.assertIsNone(conversation.title)
+        self.assertTrue(result.startswith("# conversation\n"))
+        self.assertEqual(chatmd.safe_filename(conversation.title), "conversation")
+
+    def test_safe_filename_is_deterministic_and_filesystem_safe(self) -> None:
+        cases = {
+            "  ... Project / \\ Notes ...  ": "Project _ _ Notes.md",
+            " . .foo. . ": "foo.md",
+            "many   spaces": "many spaces.md",
+            "bad\x00name\x1fname": "bad_name_name.md",
+            "...": "conversation.md",
+            "": "conversation.md",
+            None: "conversation.md",
+        }
+        for title, expected in cases.items():
+            with self.subTest(title=title):
+                self.assertEqual(chatmd.safe_filename(title) + ".md", expected)
+
+    def test_writer_uses_desktop_and_exclusive_creation(self) -> None:
+        conversation = chatmd.Conversation("Desktop export", ())
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            desktop = home / "Desktop"
+            desktop.mkdir()
+            with patch("chatmd.Path.home", return_value=home):
+                output = chatmd.write_markdown(
+                    conversation,
+                    "https://chatgpt.com/share/example",
+                )
+
+            self.assertEqual(output, desktop / "Desktop export.md")
+            self.assertEqual(output.read_text(encoding="utf-8"), (
+                "# Desktop export\n\n"
+                "> Source: https://chatgpt.com/share/example\n"
+            ))
+
+            output.write_text("keep this exact file", encoding="utf-8")
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                chatmd.write_markdown(conversation, "https://chatgpt.com/share/example", desktop)
+            self.assertEqual(output.read_text(encoding="utf-8"), "keep this exact file")
+            self.assertEqual(list(desktop.iterdir()), [output])
+
+    def test_writer_publishes_no_partial_file_on_failure(self) -> None:
+        conversation = chatmd.Conversation(
+            "failed export",
+            (chatmd.Message("system", "text", (chatmd.TextPart("not visible"),)),),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            desktop = Path(temporary)
+            with self.assertRaises(chatmd.ParseError):
+                chatmd.write_markdown(conversation, "https://chatgpt.com/share/example", desktop)
+            self.assertEqual(list(desktop.iterdir()), [])
+
+            valid = chatmd.Conversation("write failure", ())
+            with patch("chatmd.os.link", side_effect=OSError("link failed")), self.assertRaisesRegex(
+                OSError, "link failed"
+            ):
+                chatmd.write_markdown(valid, "https://chatgpt.com/share/example", desktop)
+            self.assertEqual(list(desktop.iterdir()), [])
+
+    def test_main_accepts_one_url_without_stdout_serialization(self) -> None:
+        source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
+        conversation = chatmd.Conversation("Title", ())
+        stdout = io.StringIO()
+        with patch("chatmd.parse_share", return_value=conversation) as parse_share, patch(
+            "chatmd.write_markdown"
+        ) as write_markdown, redirect_stdout(stdout):
+            self.assertEqual(chatmd.main([source_url]), 0)
+
+        parse_share.assert_called_once_with(source_url)
+        write_markdown.assert_called_once_with(conversation, source_url)
+        self.assertEqual(stdout.getvalue(), "")
+
+    def test_main_rejects_missing_extra_and_invalid_input(self) -> None:
+        for arguments in ([], ["https://example.com/one", "https://example.com/two"], ["not-a-url"]):
+            with (
+                self.subTest(arguments=arguments),
+                redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as error,
+            ):
+                chatmd.main(arguments)
+            self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == "__main__":
