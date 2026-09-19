@@ -1,88 +1,177 @@
 # chatmd
 
-chatmd is intended to convert public ChatGPT share URLs into deterministic
-Markdown while preserving visible conversation content as faithfully as the
-source representation permits. Its central invariant is that conversation
-content must not be rewritten.
+ChatMD captures a public ChatGPT share as source-faithful local Markdown.
 
-## Current state
+Shared conversations are transient web pages. ChatMD writes one durable Markdown
+file from a public share URL without summarizing, paraphrasing, or otherwise
+rewriting the visible conversation.
 
-The project is not yet an end-user Markdown converter. CHAT-1 established how
-current public ChatGPT shares work, and CHAT-2 implemented the production
-parsing core. The parser currently stops at a normalized `Conversation` model
-containing `Message`, `TextPart`, and `ImagePart` values.
+## What it does
 
-Implemented now:
+Given one public ChatGPT share URL, ChatMD fetches the share over ordinary HTTP,
+reconstructs the active visible conversation from ChatGPT's structured share
+data, and writes a deterministic Markdown file into a local vault directory.
 
-- public share fetching with an ordinary HTTP request;
-- React Router hydration decoding;
-- structured `serverResponse.data` lookup;
-- active branch reconstruction from `mapping` and `current_node`;
-- visibility filtering;
-- deterministic normalized representation.
+It is a capture boundary, not a knowledge-processing system. Successful captures
+currently go to:
 
-Not implemented yet:
+```text
+/Users/marwan/My vault/Sources/ChatMD/YYYY/MM/
+```
 
-- deterministic Markdown serialization;
-- the final `chatmd <share-url>` CLI experience;
-- image asset downloading;
-- package installation, distribution, or release automation.
+That capture root is machine-specific. ChatMD is not yet a portable packaged
+CLI.
 
-## How parsing works
+## Quick start
+
+From a checkout of this repository:
+
+```sh
+python3 chatmd.py https://chatgpt.com/share/<public-share-id>
+```
+
+On success, ChatMD prints the exact persisted path:
+
+```text
+Saved: /Users/marwan/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
+```
+
+There is no install command. Run `chatmd.py` from the repository with Python 3.
+
+This repository is currently configured for the author's machine. Captures are
+written to `/Users/marwan/My vault/Sources/ChatMD`. On another machine, change
+that capture root in `chatmd.py` before using the command unchanged. ChatMD
+works end-to-end today, but it is not yet portable or packaged.
+
+## Capture guarantees
+
+- Visible conversation text is preserved as the structured share represents it.
+- ChatMD does not use an LLM to rewrite, summarize, or clean up source content.
+- Existing files are never silently overwritten.
+- Filename collisions keep the original file and write a deterministic suffix
+  such as `conversation-2.md`.
+- Empty, whitespace-only, and other contentless exports are rejected.
+- Failed fetch, parse, conversion, or filesystem operations do not create a
+  successful-looking capture.
+- `Saved: <absolute-path>` is printed only after persistence, and it is the
+  exact file that was written.
+
+Year and month directories come from the local capture date and are created when
+missing. The filename is derived from the conversation title, with a
+filesystem-safe fallback of `conversation.md`.
+
+## How it works
 
 ```text
 public share URL
-  -> ordinary HTTP fetch
-  -> React Router hydration payload
-  -> serverResponse.data
-  -> mapping + current_node
-  -> active conversation branch reconstruction
-  -> visible-content projection
-  -> normalized Conversation / Message / TextPart / ImagePart model
+  -> structured ChatGPT share data
+  -> active visible conversation
+  -> normalized model
+  -> deterministic Markdown
+  -> validated local capture
 ```
 
-The public share HTML contains structured conversation data in its React Router
-hydration stream. chatmd walks parent links from `current_node` through
-`mapping`, reverses that path into conversation order, and then projects the
-visible user and assistant messages. This is used instead of scraping the
-rendered DOM because it provides the source message structure and text directly,
-without reconstructing content from presentation HTML.
+Public share HTML includes structured conversation data in its React Router
+hydration stream. ChatMD reads that representation instead of scraping rendered
+DOM so it can recover message order, roles, and source text directly.
 
-## Visibility and safety
+The Markdown capture looks like this:
 
-The conversation graph contains more than the visible transcript. Based on the
-current observed share format, the parser deliberately excludes system and tool
-messages, reasoning or thought content, model context, execution output,
-thinking preambles, explicitly hidden messages, tool-directed assistant
-messages, and user system messages.
+```markdown
+# Conversation title
 
-The parser is fail-visible. If potentially visible content has an unknown role,
-content type, multimodal part type, or malformed structure, parsing raises a
-clear error rather than silently producing an incomplete transcript.
+> Source: https://chatgpt.com/share/...
 
-## Content preservation
+---
 
-Ordinary source text is retained directly from the structured share data.
-Markdown already present in that text, including headings, links, blockquotes,
-tables, code fences, blank lines, and other formatting, is not regenerated by
-an LLM or reconstructed from rendered HTML.
+**User**
 
-Known `image_asset_pointer` parts are retained as `ImagePart` values in the
-normalized model. Images are not currently downloaded or serialized to
-Markdown.
+exact visible message content
 
-## Evidence and development
+---
 
-The parser has been exercised against three representative real public ChatGPT
-shares covering plain, Markdown-heavy, and image-rich conversations. The
-repository retains privacy-safe structural evidence rather than the share URLs,
-conversation bodies, or identifiers. A synthetic automated suite additionally
-covers supported content, visibility exclusions, malformed graphs, and
-fail-visible behavior.
+**ChatGPT**
 
-The implementation currently uses only the Python standard library. Run the
-test suite from the repository root with:
+exact visible message content
+```
+
+If the share has no title, the document heading and default filename use
+`conversation`. That fallback is projection only; ChatMD does not invent a title
+in the conversation model.
+
+## Content fidelity
+
+Preserved:
+
+- exact reader-visible title when present
+- visible user and assistant messages on the active branch, in order
+- source-authored Markdown, code fences, tables, links, lists, and whitespace
+- inline citation markers as they appear in the source text
+- visible file attachments as `[File: <filename>]` at their original position
+- images as `[Image in original conversation]` at their original position
+
+Intentionally excluded:
+
+- system and tool messages
+- reasoning, thought, execution, and model-context content
+- thinking preambles and explicitly hidden messages
+- tool-directed assistant messages and user system messages
+- UI-only follow-up controls
+- hidden citation internals
+
+Image and file assets are not downloaded. The placeholders above are the current
+accepted representation.
+
+Unknown visible roles, content types, or multimodal parts fail with a clear
+error instead of being silently dropped.
+
+## Safety and failure behavior
+
+Parsing is fail-visible: malformed share structure or unsupported visible
+content stops the run rather than producing an incomplete transcript.
+
+Persistence writes a complete Markdown body, then publishes it to the final
+path. Failures return a non-zero exit status. Missing, extra, or invalid CLI
+input also fails clearly. ChatMD accepts exactly one public HTTP(S) share URL.
+
+## Development and verification
+
+The runtime implementation uses the Python standard library. From the repository root:
 
 ```sh
 python3 -m unittest -v
+npx --yes pyright
+uvx ruff check .
+git diff --check
 ```
+
+## Local Work Authority
+
+Development authority is stored locally under
+[`authority/Projects/CHAT-P1/`](authority/Projects/CHAT-P1/).
+
+The repository keeps these as separate facts:
+
+- authorized Work
+- implementation
+- verification
+- human acceptance
+- reconciliation
+
+This README describes the current capture tool. The authority tree records how
+that tool was authorized, verified, and accepted.
+
+## Current limitations
+
+ChatMD does not yet provide:
+
+- image or file asset downloading
+- portable capture-root configuration
+- package installation, distribution, or release automation
+- LLM summarization, rewriting, or knowledge extraction
+- tagging, embeddings, RAG, or automatic promotion into a knowledge base
+- the portable conversation bundle contract (`manifest.json`, `assets/`,
+  content identity)
+
+It captures one public share URL at a time. Private conversations and ChatGPT
+authentication are outside the current workflow.
