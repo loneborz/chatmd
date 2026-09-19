@@ -215,4 +215,5 @@ _None._
 
 - **governed-by** <- [[Projects/CHAT-P1/Work/CHAT-3|CHAT-3]]: Extend canonical conversation model with title and citations
 - **governed-by** <- [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow
+- **governed-by** <- [[Projects/CHAT-P1/Work/CHAT-5|CHAT-5]]: Make local ChatMD capture reliable
 <!-- lwa:derived:end -->
