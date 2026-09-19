@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChatMD - Capture a public ChatGPT share as local Markdown</title>
+<meta name="description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#09090b">
+<link rel="canonical" href="https://chatmd.wavesweb.nl/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ChatMD">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://chatmd.wavesweb.nl/">
+<meta property="og:title" content="ChatMD - Capture a public ChatGPT share as local Markdown">
+<meta property="og:description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<meta property="og:image" content="https://chatmd.wavesweb.nl/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="ChatMD: shared conversations are temporary web pages. ChatMD makes them files.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ChatMD - Capture a public ChatGPT share as local Markdown">
+<meta name="twitter:description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<meta name="twitter:image" content="https://chatmd.wavesweb.nl/og.png">
+<meta name="twitter:image:alt" content="ChatMD: shared conversations are temporary web pages. ChatMD makes them files.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+<noscript><style>html.js .reveal,.reveal{opacity:1!important;transform:none!important}</style></noscript>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="wordmark" href="#top">
+      <span class="wordmark-mark" aria-hidden="true"></span>
+      chatmd
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#transience">Transience</a>
+      <a href="#model">Capture model</a>
+      <a href="#fidelity">Fidelity</a>
+      <a href="#failure">Failure</a>
+      <a href="#boundary">Boundary</a>
+    </nav>
+    <a class="btn btn-ghost nav-cta" href="https://github.com/loneborz/chatmd">
+      GitHub
+      <span class="arrow" aria-hidden="true">&#8599;</span>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="top">
+  <div class="hero-field" aria-hidden="true"></div>
+  <div class="container">
+    <p class="eyebrow reveal">Local CLI &middot; macOS &middot; Python standard library</p>
+
+    <h1 class="display reveal">
+      Shared conversations are<br>
+      temporary web pages.
+      <span class="display-dim">ChatMD makes them files.</span>
+    </h1>
+
+    <p class="lead reveal">
+      ChatMD captures one public ChatGPT share as a deterministic local Markdown
+      artifact. No summarizing, no paraphrasing, no cleanup. It is a capture
+      boundary, not a knowledge system.
+    </p>
+
+    <div class="hero-actions reveal">
+      <a class="btn btn-primary" href="#install">Install</a>
+      <a class="btn btn-ghost" href="https://github.com/loneborz/chatmd">
+        View source
+        <span class="arrow" aria-hidden="true">&#8599;</span>
+      </a>
+    </div>
+
+    <div class="terminal reveal">
+      <div class="terminal-bar">
+        <span class="mono-label">capture</span>
+        <button class="copy" type="button" data-copy="chatmd https://chatgpt.com/share/&lt;public-share-id&gt;">
+          <span class="copy-text" aria-live="polite">Copy command</span>
+        </button>
+      </div>
+      <pre class="terminal-body"><code><span class="t-prompt">$</span> <span class="t-cmd">chatmd</span> <span class="t-arg">https://chatgpt.com/share/&lt;public-share-id&gt;</span>
+
+<span class="t-ok">CAPTURE COMPLETE</span>
+
+<span class="t-key">Saved:</span>
+<span class="t-path">~/My vault/Sources/ChatMD/2026/09/&lt;conversation&gt;.md</span>
+
+<span class="t-key">Shared source:</span>
+<span class="t-dim">https://chatgpt.com/share/&lt;public-share-id&gt;</span>
+
+<span class="t-warn">SECURITY:</span>
+<span class="t-warn">This shared link still exists.</span>
+<span class="t-warn">Revoke it in ChatGPT &gt; Settings &gt; Data Controls &gt; Shared Links.</span></code></pre>
+    </div>
+
+    <ul class="hero-facts reveal">
+      <li><span class="mono-label">Input</span><span>One public share URL</span></li>
+      <li><span class="mono-label">Output</span><span>One Markdown file</span></li>
+      <li><span class="mono-label">Network</span><span>Ordinary HTTP, no browser</span></li>
+      <li><span class="mono-label">Model use</span><span>None in the capture path</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 01 TRANSIENCE ============ -->
+<section class="band" id="transience">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">01 / Why it exists</p>
+      <h2 class="h2">A public share is a page someone else can take down.</h2>
+      <p class="section-lead">
+        The link works until it does not. Revocation, account changes, and
+        expiry all end the same way: the conversation you cited is gone and the
+        evidence went with it. ChatMD exists to move one share across that line,
+        from a hosted page to a file on your disk, while the link is still live.
+      </p>
+    </div>
+
+    <ol class="timeline reveal">
+      <li>
+        <span class="mono-label step">T0</span>
+        <h3>The share is published</h3>
+        <p>A public URL renders the conversation for anyone who holds the link.</p>
+      </li>
+      <li>
+        <span class="mono-label step">T1</span>
+        <h3>ChatMD captures it</h3>
+        <p>One HTTP fetch, one deterministic Markdown file, written locally.</p>
+      </li>
+      <li>
+        <span class="mono-label step">T2</span>
+        <h3>The share is revoked</h3>
+        <p>The URL stops resolving. A later capture attempt fails visibly.</p>
+      </li>
+      <li class="terminal-state">
+        <span class="mono-label step">T3</span>
+        <h3>The file remains</h3>
+        <p>Local Markdown and preserved images are unaffected by revocation.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ 02 CAPTURE MODEL ============ -->
+<section class="band band-alt" id="model">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">02 / Capture model</p>
+      <h2 class="h2">Structured share data in. Deterministic Markdown out.</h2>
+      <p class="section-lead">
+        Public share HTML carries the conversation inside its React Router
+        hydration stream. ChatMD reads that structured representation rather
+        than scraping rendered DOM, so message order, roles, and source text
+        come back directly.
+      </p>
+    </div>
+
+    <div class="pipeline reveal">
+      <ol>
+        <li><span class="mono-label seq">1</span><span class="node">public share URL</span></li>
+        <li><span class="mono-label seq">2</span><span class="node">structured ChatGPT share data</span></li>
+        <li><span class="mono-label seq">3</span><span class="node">active visible conversation</span></li>
+        <li><span class="mono-label seq">4</span><span class="node">share-visible image bytes</span></li>
+        <li><span class="mono-label seq">5</span><span class="node">normalized model</span></li>
+        <li><span class="mono-label seq">6</span><span class="node">deterministic Markdown</span></li>
+        <li><span class="mono-label seq">7</span><span class="node node-final">validated local capture</span></li>
+      </ol>
+    </div>
+
+    <div class="split reveal">
+      <article class="panel">
+        <div class="panel-bar"><h3 class="mono-label">Artifact</h3><span class="mono-label dim">markdown</span></div>
+        <pre class="code"><code><span class="m-h1"># Conversation title</span>
+
+<span class="m-quote">&gt; Source: https://chatgpt.com/share/...</span>
+
+<span class="m-rule">---</span>
+
+<span class="m-role">**User**</span>
+
+exact visible message content
+
+<span class="m-rule">---</span>
+
+<span class="m-role">**ChatGPT**</span>
+
+exact visible message content</code></pre>
+      </article>
+
+      <article class="panel">
+        <div class="panel-bar"><h3 class="mono-label">On disk</h3><span class="mono-label dim">sibling assets</span></div>
+        <pre class="code"><code><span class="t-dim">2026/09/</span>
+├── Share capture notes.md
+└── Share capture notes-images/
+    └── 01-diagram.PNG</code></pre>
+        <div class="panel-note">
+          <p>
+            Supported visible user images are downloaded during capture and
+            stored beside the Markdown file, then referenced with ordinary
+            relative image links at their original position.
+          </p>
+          <pre class="code code-inline"><code>![diagram.PNG](Share%20capture%20notes-images/01-diagram.PNG)</code></pre>
+          <p class="caveat">
+            What is preserved is the share-visible representation. ChatGPT may
+            sanitize or resize it, so original upload bytes are not guaranteed.
+          </p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 FIDELITY ============ -->
+<section class="band" id="fidelity">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">03 / Fidelity</p>
+      <h2 class="h2">The exclusions are the design.</h2>
+      <p class="section-lead">
+        ChatMD captures the reader-visible conversation and nothing else.
+        Execution internals are not evidence of what was said, so they are left
+        out on purpose rather than by accident.
+      </p>
+    </div>
+
+    <div class="ledger reveal">
+      <section class="ledger-col ledger-keep">
+        <h3 class="mono-label col-head">Preserved</h3>
+        <ul>
+          <li>Exact reader-visible title when present</li>
+          <li>Visible user and assistant messages on the active branch, in order</li>
+          <li>Source-authored Markdown, code fences, tables, links, lists, whitespace</li>
+          <li>Inline citation markers as they appear in the source text</li>
+          <li>Visible file attachments as <code>[File: &lt;filename&gt;]</code> placeholders</li>
+          <li>Supported visible user images as local files with relative links</li>
+        </ul>
+      </section>
+      <section class="ledger-col ledger-drop">
+        <h3 class="mono-label col-head">Intentionally excluded</h3>
+        <ul>
+          <li>System and tool messages</li>
+          <li>Reasoning, thought, execution, and model-context content</li>
+          <li>Thinking preambles and explicitly hidden messages</li>
+          <li>Tool-directed assistant messages and user system messages</li>
+          <li>UI-only follow-up controls</li>
+          <li>Hidden citation internals</li>
+        </ul>
+      </section>
+    </div>
+
+    <p class="ledger-foot reveal">
+      Nothing in the capture path is rewritten by a language model. Text is
+      preserved as the structured share represents it.
+    </p>
+  </div>
+</section>
+
+<!-- ============ 04 FAILURE ============ -->
+<section class="band band-alt" id="failure">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">04 / Failure semantics</p>
+      <h2 class="h2">A capture either completes or it does not exist.</h2>
+      <p class="section-lead">
+        Partial captures are the failure mode that matters. A file that looks
+        complete but quietly dropped content is worse than no file, so ChatMD
+        stops instead of guessing.
+      </p>
+    </div>
+
+    <div class="trio reveal">
+      <article>
+        <h3 class="mono-label">Fail visible</h3>
+        <p>
+          Unknown visible roles, content types, or multimodal parts stop the run
+          with a clear error instead of being silently dropped. A supported
+          visible image that cannot be preserved fails the capture.
+        </p>
+      </article>
+      <article>
+        <h3 class="mono-label">Never overwrite</h3>
+        <p>
+          Existing files are never silently replaced. Collisions keep the
+          original and write a deterministic suffix such as
+          <code>conversation-2.md</code>. Matching image directories use the
+          same suffix.
+        </p>
+      </article>
+      <article>
+        <h3 class="mono-label">Persist, then report</h3>
+        <p>
+          <code>CAPTURE COMPLETE</code> prints only after the file is on disk.
+          Failed validation, fetch, parse, or persistence returns a non-zero
+          exit status and no success output.
+        </p>
+      </article>
+    </div>
+
+    <aside class="warning reveal">
+      <div class="warning-rule" aria-hidden="true"></div>
+      <div class="warning-body">
+        <p class="mono-label warn-label">Security / the share outlives the capture</p>
+        <h3>ChatMD does not revoke the public share.</h3>
+        <p>
+          Capturing a conversation does not un-publish it. Every successful run
+          ends by telling you the link is still live and where to turn it off.
+          Revocation stays a human decision.
+        </p>
+        <pre class="code code-warn"><code>SECURITY:
+This shared link still exists.
+Revoke it in ChatGPT &gt; Settings &gt; Data Controls &gt; Shared Links.</code></pre>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ 05 BOUNDARY ============ -->
+<section class="band" id="boundary">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">05 / Current boundary</p>
+      <h2 class="h2">What ChatMD deliberately is not.</h2>
+      <p class="section-lead">
+        The scope is narrow because the guarantee is narrow. Everything below is
+        outside the tool today, and the tool is honest about it rather than
+        implying it.
+      </p>
+    </div>
+
+    <div class="boundary reveal">
+      <ul class="boundary-list">
+        <li><span class="mono-label bkey">Scope</span><span>One public share URL at a time</span></li>
+        <li><span class="mono-label bkey">Auth</span><span>No ChatGPT login, no private conversations</span></li>
+        <li><span class="mono-label bkey">Clipboard</span><span>Zero-argument mode is macOS-native and needs <code>pbpaste</code></span></li>
+        <li><span class="mono-label bkey">Files</span><span>File attachments stay placeholders and are not downloaded</span></li>
+        <li><span class="mono-label bkey">Images</span><span>Original upload bytes are not recoverable when the share is sanitized</span></li>
+        <li><span class="mono-label bkey">Config</span><span>The capture root is machine-specific and set in <code>chatmd.py</code></span></li>
+        <li><span class="mono-label bkey">Knowledge</span><span>No summarization, tagging, embeddings, RAG, or promotion</span></li>
+        <li><span class="mono-label bkey">Revocation</span><span>Shared links are never revoked automatically</span></li>
+        <li><span class="mono-label bkey">Bundle</span><span>The portable bundle contract is specified, not implemented</span></li>
+        <li><span class="mono-label bkey">Runtime</span><span>No watcher, no daemon, no GUI, no hosted service</span></li>
+      </ul>
+      <aside class="boundary-note">
+        <p class="mono-label">Not a promise of pixel fidelity</p>
+        <p>
+          ChatMD reconstructs the visible conversation from structured share
+          data. It does not attempt to reproduce ChatGPT's rendered DOM or
+          visual layout, and it does not claim to.
+        </p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 INSTALL ============ -->
+<section class="band band-alt" id="install">
+  <div class="container">
+    <div class="section-head reveal">
+      <p class="mono-label index">06 / Install</p>
+      <h2 class="h2">One command to install. One to capture.</h2>
+      <p class="section-lead">
+        The runtime uses the Python standard library. Install once from a
+        checkout, then call <code>chatmd</code> from anywhere.
+      </p>
+    </div>
+
+    <div class="install reveal">
+      <ol class="steps">
+        <li>
+          <span class="mono-label seq">1</span>
+          <div>
+            <h3>Install the local command</h3>
+            <div class="cmd">
+              <code>uv tool install .</code>
+              <button class="copy" type="button" data-copy="uv tool install ."><span class="copy-text" aria-live="polite">Copy</span></button>
+            </div>
+            <p>Run from a checkout of the repository.</p>
+          </div>
+        </li>
+        <li>
+          <span class="mono-label seq">2</span>
+          <div>
+            <h3>Capture an explicit share</h3>
+            <div class="cmd">
+              <code>chatmd https://chatgpt.com/share/&lt;id&gt;</code>
+              <button class="copy" type="button" data-copy="chatmd https://chatgpt.com/share/&lt;id&gt;"><span class="copy-text" aria-live="polite">Copy</span></button>
+            </div>
+            <p>One public HTTP(S) share URL, quoted only if the URL needs it.</p>
+          </div>
+        </li>
+        <li>
+          <span class="mono-label seq">3</span>
+          <div>
+            <h3>Or capture from the clipboard</h3>
+            <div class="cmd">
+              <code>chatmd</code>
+              <button class="copy" type="button" data-copy="chatmd"><span class="copy-text" aria-live="polite">Copy</span></button>
+            </div>
+            <p>
+              macOS only. Used when the clipboard, after trimming whitespace, is
+              exactly one <code>https://chatgpt.com/share/...</code> URL.
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <aside class="install-note">
+        <p class="mono-label">Before you run it elsewhere</p>
+        <p>
+          The capture root is currently a machine-specific path inside
+          <code>chatmd.py</code>. On another machine, change it and reinstall.
+          Portable capture-root configuration does not exist yet.
+        </p>
+        <a class="btn btn-primary full" href="https://github.com/loneborz/chatmd">
+          loneborz/chatmd
+          <span class="arrow" aria-hidden="true">&#8599;</span>
+        </a>
+      </aside>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a class="wordmark" href="#top"><span class="wordmark-mark" aria-hidden="true"></span>chatmd</a>
+      <p>Capture a public ChatGPT share as a deterministic local Markdown artifact.</p>
+    </div>
+    <div class="footer-meta">
+      <p class="mono-label">Source</p>
+      <a href="https://github.com/loneborz/chatmd">github.com/loneborz/chatmd</a>
+    </div>
+    <div class="footer-meta">
+      <p class="mono-label">Status</p>
+      <p>Local capture tool. Version 0.1.0.</p>
+    </div>
+  </div>
+  <div class="container footer-fine">
+    <p>An independent local tool. Not affiliated with, endorsed by, or connected to OpenAI.</p>
+    <p class="mono-label dim">chatmd.wavesweb.nl</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var items = document.querySelectorAll('.reveal');
+  var viewport = window.innerHeight || 0;
+
+  items.forEach(function (el) {
+    if (reduce || el.getBoundingClientRect().top < viewport) {
+      el.classList.add('in');
+    }
+  });
+  document.documentElement.classList.add('js');
+
+  if (!reduce && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+    items.forEach(function (el) {
+      if (!el.classList.contains('in')) io.observe(el);
+    });
+  }
+
+  var legacyCopy = function (text) {
+    var field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', '');
+    field.setAttribute('aria-hidden', 'true');
+    field.tabIndex = -1;
+    field.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+    document.body.appendChild(field);
+    field.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(field);
+    return ok;
+  };
+
+  document.querySelectorAll('.copy').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var raw = button.getAttribute('data-copy') || '';
+      var text = raw.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      var label = button.querySelector('.copy-text');
+      var original = label.textContent;
+      var done = function (ok) {
+        label.textContent = ok ? 'Copied' : 'Copy failed';
+        button.classList.add(ok ? 'ok' : 'fail');
+        window.setTimeout(function () {
+          label.textContent = original;
+          button.classList.remove('ok', 'fail');
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { done(true); },
+          function () { done(legacyCopy(text)); }
+        );
+      } else {
+        done(legacyCopy(text));
+      }
+    });
+  });
+
+  var nav = document.getElementById('nav');
+  var onScroll = function () {
+    nav.classList.toggle('scrolled', window.scrollY > 12);
+  };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+
+</body>
+</html>

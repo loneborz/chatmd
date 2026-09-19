@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="ChatMD">
+  <rect width="32" height="32" fill="#09090b"/>
+  <rect x="10" y="10" width="12" height="12" rx="1.4" fill="url(#mark)" stroke="#3d3d44" stroke-width="1.25"/>
+  <defs>
+    <linearGradient id="mark" x1="10" y1="10" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+  </defs>
+</svg>
