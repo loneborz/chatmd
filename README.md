@@ -16,7 +16,7 @@ It is a capture boundary, not a knowledge-processing system. Successful captures
 currently go to:
 
 ```text
-/Users/marwan/My vault/Sources/ChatMD/YYYY/MM/
+~/My vault/Sources/ChatMD/YYYY/MM/
 ```
 
 That capture root is machine-specific. ChatMD is not yet a portable packaged
@@ -33,15 +33,17 @@ python3 chatmd.py https://chatgpt.com/share/<public-share-id>
 On success, ChatMD prints the exact persisted path:
 
 ```text
-Saved: /Users/marwan/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
+Saved: ~/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
 ```
 
 There is no install command. Run `chatmd.py` from the repository with Python 3.
 
-This repository is currently configured for the author's machine. Captures are
-written to `/Users/marwan/My vault/Sources/ChatMD`. On another machine, change
-that capture root in `chatmd.py` before using the command unchanged. ChatMD
-works end-to-end today, but it is not yet portable or packaged.
+This repository currently uses a machine-specific local capture root under
+`~/My vault/Sources/ChatMD`. The `~` form is README notation for privacy, not
+runtime home-directory expansion or a configuration setting. On another
+machine, change the capture root in `chatmd.py` before using the command
+unchanged. ChatMD works end-to-end today, but it is not yet portable or
+packaged.
 
 ## Capture guarantees
 
