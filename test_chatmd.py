@@ -3,11 +3,30 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
 from email.message import Message as Headers
 from pathlib import Path
 from unittest.mock import patch
 
 import chatmd
+
+CAPTURE_DATE = date(2026, 9, 19)
+SOURCE_URL = "https://chatgpt.com/share/example"
+
+
+def user_conversation(title: str | None = "Capture", text: str = "hello") -> chatmd.Conversation:
+    return chatmd.Conversation(
+        title,
+        (chatmd.Message("user", "text", (chatmd.TextPart(text),)),),
+    )
+
+
+def markdown_files(root: Path) -> list[Path]:
+    return sorted(
+        path.resolve()
+        for path in root.rglob("*.md")
+        if not path.name.startswith(".")
+    )
 
 MISSING = object()
 
@@ -582,60 +601,199 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(chatmd.safe_filename(title) + ".md", expected)
 
-    def test_writer_uses_desktop_and_exclusive_creation(self) -> None:
-        conversation = chatmd.Conversation("Desktop export", ())
+    def test_default_capture_root_is_the_authorized_vault_path(self) -> None:
+        self.assertEqual(
+            chatmd.CAPTURE_ROOT,
+            Path("/Users/marwan/My vault/Sources/ChatMD"),
+        )
+
+    def test_writer_routes_to_year_month_and_creates_missing_directories(self) -> None:
+        conversation = user_conversation("Vault export", "exact source text")
         with tempfile.TemporaryDirectory() as temporary:
-            home = Path(temporary)
-            desktop = home / "Desktop"
-            desktop.mkdir()
-            with patch("chatmd.Path.home", return_value=home):
-                output = chatmd.write_markdown(
-                    conversation,
-                    "https://chatgpt.com/share/example",
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                output = chatmd.write_markdown(conversation, SOURCE_URL)
+
+            expected = (root / "2026" / "09" / "Vault export.md").resolve()
+            self.assertEqual(output, expected)
+            self.assertTrue(expected.is_file())
+            self.assertEqual(
+                expected.read_text(encoding="utf-8"),
+                chatmd.serialize_conversation(conversation, SOURCE_URL),
+            )
+            self.assertEqual(markdown_files(root), [expected])
+
+    def test_writer_uses_existing_safe_filename_behavior(self) -> None:
+        conversation = user_conversation("  ... Project / \\ Notes ...  ", "body")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                output = chatmd.write_markdown(conversation, SOURCE_URL)
+            self.assertEqual(output.name, "Project _ _ Notes.md")
+
+    def test_writer_collision_preserves_existing_file_and_uses_suffix(self) -> None:
+        conversation = user_conversation("conversation", "first capture")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                first = chatmd.write_markdown(conversation, SOURCE_URL)
+                original = first.read_text(encoding="utf-8")
+                second = chatmd.write_markdown(
+                    user_conversation("conversation", "second capture"),
+                    SOURCE_URL,
+                )
+                third = chatmd.write_markdown(
+                    user_conversation("conversation", "third capture"),
+                    SOURCE_URL,
                 )
 
-            self.assertEqual(output, desktop / "Desktop export.md")
-            self.assertEqual(output.read_text(encoding="utf-8"), (
-                "# Desktop export\n\n"
-                "> Source: https://chatgpt.com/share/example\n"
-            ))
+            directory = root / "2026" / "09"
+            self.assertEqual(first, (directory / "conversation.md").resolve())
+            self.assertEqual(second, (directory / "conversation-2.md").resolve())
+            self.assertEqual(third, (directory / "conversation-3.md").resolve())
+            self.assertEqual(first.read_text(encoding="utf-8"), original)
+            self.assertIn("second capture", second.read_text(encoding="utf-8"))
+            self.assertIn("third capture", third.read_text(encoding="utf-8"))
+            self.assertEqual(set(markdown_files(root)), {first, second, third})
 
-            output.write_text("keep this exact file", encoding="utf-8")
-            with self.assertRaisesRegex(FileExistsError, "already exists"):
-                chatmd.write_markdown(conversation, "https://chatgpt.com/share/example", desktop)
-            self.assertEqual(output.read_text(encoding="utf-8"), "keep this exact file")
-            self.assertEqual(list(desktop.iterdir()), [output])
+    def test_writer_rejects_contentless_exports_without_a_final_file(self) -> None:
+        cases = {
+            "title-only shell": chatmd.Conversation("Desktop export", ()),
+            "whitespace text": user_conversation("Whitespace", "  \n\t"),
+            "empty text part": user_conversation("Empty", ""),
+            "empty file part": chatmd.Conversation(
+                "File shell",
+                (chatmd.Message("assistant", "text", (chatmd.FilePart("  "),)),),
+            ),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, conversation in cases.items():
+                with (
+                    self.subTest(name=name),
+                    patch("chatmd.CAPTURE_ROOT", root),
+                    patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                    self.assertRaisesRegex(chatmd.ParseError, "no meaningful content"),
+                ):
+                    chatmd.write_markdown(conversation, SOURCE_URL)
+            self.assertEqual(list(root.rglob("*")), [])
+
+    def test_writer_keeps_image_or_file_parts_as_meaningful_content(self) -> None:
+        conversations = (
+            chatmd.Conversation(
+                "Image only",
+                (chatmd.Message("user", "multimodal_text", (
+                    chatmd.ImagePart("sediment://asset/example"),
+                )),),
+            ),
+            chatmd.Conversation(
+                "File only",
+                (chatmd.Message("assistant", "text", (chatmd.FilePart("notes.md"),)),),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+            ):
+                for conversation in conversations:
+                    output = chatmd.write_markdown(conversation, SOURCE_URL)
+                    self.assertTrue(output.is_file())
+                    self.assertEqual(
+                        output.read_text(encoding="utf-8"),
+                        chatmd.serialize_conversation(conversation, SOURCE_URL),
+                    )
 
     def test_writer_publishes_no_partial_file_on_failure(self) -> None:
-        conversation = chatmd.Conversation(
+        invalid = chatmd.Conversation(
             "failed export",
             (chatmd.Message("system", "text", (chatmd.TextPart("not visible"),)),),
         )
+        valid = user_conversation("write failure", "complete body")
         with tempfile.TemporaryDirectory() as temporary:
-            desktop = Path(temporary)
-            with self.assertRaises(chatmd.ParseError):
-                chatmd.write_markdown(conversation, "https://chatgpt.com/share/example", desktop)
-            self.assertEqual(list(desktop.iterdir()), [])
-
-            valid = chatmd.Conversation("write failure", ())
-            with patch("chatmd.os.link", side_effect=OSError("link failed")), self.assertRaisesRegex(
-                OSError, "link failed"
+            root = Path(temporary)
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                self.assertRaises(chatmd.ParseError),
             ):
-                chatmd.write_markdown(valid, "https://chatgpt.com/share/example", desktop)
-            self.assertEqual(list(desktop.iterdir()), [])
+                chatmd.write_markdown(invalid, SOURCE_URL)
+            self.assertEqual(markdown_files(root), [])
 
-    def test_main_accepts_one_url_without_stdout_serialization(self) -> None:
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                patch("chatmd.os.link", side_effect=OSError("link failed")),
+                self.assertRaisesRegex(OSError, "link failed"),
+            ):
+                chatmd.write_markdown(valid, SOURCE_URL)
+            self.assertEqual(markdown_files(root), [])
+
+    def test_main_reports_saved_absolute_path_after_persistence(self) -> None:
         source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
-        conversation = chatmd.Conversation("Title", ())
+        conversation = user_conversation("Title", "visible body")
         stdout = io.StringIO()
+        saved = Path("/tmp/chatmd-isolated/2026/09/Title.md")
         with patch("chatmd.parse_share", return_value=conversation) as parse_share, patch(
-            "chatmd.write_markdown"
+            "chatmd.write_markdown", return_value=saved
         ) as write_markdown, redirect_stdout(stdout):
             self.assertEqual(chatmd.main([source_url]), 0)
 
         parse_share.assert_called_once_with(source_url)
         write_markdown.assert_called_once_with(conversation, source_url)
-        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stdout.getvalue(), f"Saved: {saved}\n")
+
+    def test_main_reports_actual_path_after_collision_and_preserves_existing_file(self) -> None:
+        conversation = user_conversation("Title", "first body")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_out = io.StringIO()
+            second_out = io.StringIO()
+            with (
+                patch("chatmd.CAPTURE_ROOT", root),
+                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                patch("chatmd.parse_share", return_value=conversation),
+            ):
+                with redirect_stdout(first_out):
+                    self.assertEqual(chatmd.main([SOURCE_URL]), 0)
+                original = (root / "2026" / "09" / "Title.md").read_text(encoding="utf-8")
+                with redirect_stdout(second_out):
+                    self.assertEqual(chatmd.main([SOURCE_URL]), 0)
+
+            first = (root / "2026" / "09" / "Title.md").resolve()
+            second = (root / "2026" / "09" / "Title-2.md").resolve()
+            self.assertEqual(first_out.getvalue(), f"Saved: {first}\n")
+            self.assertEqual(second_out.getvalue(), f"Saved: {second}\n")
+            self.assertEqual(first.read_text(encoding="utf-8"), original)
+            self.assertTrue(second.is_file())
+
+    def test_main_fetch_or_parse_failure_is_nonzero_without_capture_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for error in (OSError("fetch failed"), chatmd.ParseError("share is malformed")):
+                stderr = io.StringIO()
+                with (
+                    self.subTest(error=error),
+                    patch("chatmd.CAPTURE_ROOT", root),
+                    patch("chatmd.parse_share", side_effect=error),
+                    redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as caught,
+                ):
+                    chatmd.main([SOURCE_URL])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn(str(error), stderr.getvalue())
+                self.assertNotIn("Saved:", stderr.getvalue())
+            self.assertEqual(markdown_files(root), [])
 
     def test_main_rejects_missing_extra_and_invalid_input(self) -> None:
         for arguments in ([], ["https://example.com/one", "https://example.com/two"], ["not-a-url"]):

@@ -8,6 +8,7 @@ import tempfile
 import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from email.message import Message as Headers
 from html.parser import HTMLParser
 from itertools import pairwise
@@ -18,6 +19,7 @@ from urllib.request import urlopen
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("
+CAPTURE_ROOT = Path("/Users/marwan/My vault/Sources/ChatMD")
 
 
 class ParseError(ValueError):
@@ -584,13 +586,36 @@ def safe_filename(title: str | None) -> str:
     return candidate or "conversation"
 
 
+def _has_meaningful_content(conversation: Conversation) -> bool:
+    return any(
+        (isinstance(part, TextPart) and bool(part.text.strip()))
+        or isinstance(part, ImagePart)
+        or (isinstance(part, FilePart) and bool(part.filename.strip()))
+        for message in conversation.messages
+        for part in message.parts
+    )
+
+
+def _capture_date() -> date:
+    return datetime.now(timezone.utc).astimezone().date()
+
+
+def _capture_directory(capture_root: Path | None = None) -> Path:
+    root = CAPTURE_ROOT if capture_root is None else capture_root
+    capture_date = _capture_date()
+    return root / f"{capture_date:%Y}" / f"{capture_date:%m}"
+
+
 def write_markdown(
     conversation: Conversation,
     source_url: str,
-    desktop: Path | None = None,
+    capture_root: Path | None = None,
 ) -> Path:
+    if not _has_meaningful_content(conversation):
+        raise ParseError("conversation has no meaningful content")
     body = serialize_conversation(conversation, source_url)
-    output_dir = Path.home() / "Desktop" if desktop is None else desktop
+    output_dir = _capture_directory(capture_root)
+    output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / f"{safe_filename(conversation.title)}.md"
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{target.name}.",
@@ -602,11 +627,15 @@ def write_markdown(
             temporary.write(body)
             temporary.flush()
             os.fsync(temporary.fileno())
-        try:
-            os.link(temporary_name, target)
-        except FileExistsError as error:
-            raise FileExistsError(f"output file already exists: {target}") from error
-        return target
+        candidate = target
+        suffix = 2
+        while True:
+            try:
+                os.link(temporary_name, candidate)
+                return candidate.resolve()
+            except FileExistsError:
+                candidate = output_dir / f"{target.stem}-{suffix}{target.suffix}"
+                suffix += 1
     finally:
         if descriptor != -1:
             os.close(descriptor)
@@ -634,7 +663,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         _validate_share_url(arguments.url)
         conversation = parse_share(arguments.url)
-        write_markdown(conversation, arguments.url)
+        output = write_markdown(conversation, arguments.url)
+        print(f"Saved: {output}")
     except (OSError, ParseError, ValueError) as error:
         parser.error(str(error))
     return 0
