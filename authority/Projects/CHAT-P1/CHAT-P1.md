@@ -73,6 +73,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow
 - [[Projects/CHAT-P1/Work/CHAT-5|CHAT-5]]: Make local ChatMD capture reliable
 - [[Projects/CHAT-P1/Work/CHAT-6|CHAT-6]]: Sync the public GitHub README with accepted ChatMD state
+- [[Projects/CHAT-P1/Work/CHAT-7|CHAT-7]]: Make post-capture shared-link exposure explicit
 
 ## Owned Documents
 
