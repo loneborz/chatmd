@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 import json
 from typing import Callable
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 
@@ -32,14 +33,27 @@ class ImagePart:
 
 
 @dataclass(frozen=True)
+class Citation:
+    start_byte: int
+    end_byte: int
+    marker: str
+    url: str
+    title: str | None = None
+    attribution: str | None = None
+    snippet: str | None = None
+
+
+@dataclass(frozen=True)
 class Message:
     role: str
     source_type: str
     parts: tuple[TextPart | ImagePart, ...]
+    citations: tuple[Citation, ...] = ()
 
 
 @dataclass(frozen=True)
 class Conversation:
+    title: str | None
     messages: tuple[Message, ...]
 
 
@@ -252,7 +266,103 @@ def project_visible(graph: HydrationGraph, branch: tuple[int, ...]) -> tuple[int
     return tuple(visible)
 
 
-def normalize(graph: HydrationGraph, message_refs: tuple[int, ...]) -> Conversation:
+def _optional_text(graph: HydrationGraph, obj_ref: int, field: str) -> str | None:
+    value = graph.field(obj_ref, field)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _citation_items(graph: HydrationGraph, reference_ref: int) -> list[int]:
+    items_ref = graph.field_ref(reference_ref, "items")
+    if items_ref is None:
+        raise ParseError("active citation items are missing")
+    items: list[int] = []
+    for item_ref in graph.list_refs(items_ref):
+        if not isinstance(item_ref, int) or not isinstance(graph.value(item_ref), dict):
+            raise ParseError("active citation item is malformed")
+        items.append(item_ref)
+        supporting_ref = graph.field_ref(item_ref, "supporting_websites")
+        if supporting_ref is not None:
+            for supporting in graph.list_refs(supporting_ref):
+                if not isinstance(supporting, int) or not isinstance(graph.value(supporting), dict):
+                    raise ParseError("active citation supporting website is malformed")
+                items.append(supporting)
+    return items
+
+
+def _normalize_citations(graph: HydrationGraph, message_ref: int, text: str) -> tuple[Citation, ...]:
+    metadata_ref = graph.field_ref(message_ref, "metadata")
+    references_ref = graph.field_ref(metadata_ref, "content_references")
+    if references_ref is None:
+        return ()
+
+    citations: list[Citation] = []
+    for reference_ref in graph.list_refs(references_ref):
+        if not isinstance(reference_ref, int) or not isinstance(graph.value(reference_ref), dict):
+            raise ParseError("content reference is malformed")
+        reference_type = graph.field(reference_ref, "type")
+        if reference_type == "sources_footnote":
+            continue
+        if reference_type != "grouped_webpages":
+            if graph.field_ref(reference_ref, "matched_text") is not None:
+                raise UnsupportedContentError(
+                    f"unsupported visible citation type {reference_type!r}"
+                )
+            continue
+        if graph.field(reference_ref, "style") == "hidden" or graph.field(
+            reference_ref, "status"
+        ) in {"loading", "error"}:
+            continue
+
+        items = _citation_items(graph, reference_ref)
+        if not items:
+            continue
+        start = graph.field(reference_ref, "start_idx")
+        end = graph.field(reference_ref, "end_idx")
+        marker = graph.field(reference_ref, "matched_text")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start < 0
+            or end <= start
+            or end > len(text)
+            or not isinstance(marker, str)
+        ):
+            raise ParseError("active citation anchor or marker is malformed")
+        if text[start:end] != marker:
+            raise ParseError("active citation marker does not match its anchor")
+        start_byte = len(text[:start].encode("utf-8"))
+        end_byte = len(text[:end].encode("utf-8"))
+
+        for item_ref in items:
+            url = graph.field(item_ref, "url")
+            if not isinstance(url, str):
+                raise ParseError("active citation destination URL is missing")
+            try:
+                parsed = urlsplit(url)
+            except ValueError as error:
+                raise ParseError("active citation destination URL is not absolute") from error
+            if not parsed.scheme or not parsed.netloc:
+                raise ParseError("active citation destination URL is not absolute")
+            citations.append(Citation(
+                start_byte,
+                end_byte,
+                marker,
+                url,
+                _optional_text(graph, item_ref, "title"),
+                _optional_text(graph, item_ref, "attribution")
+                or _optional_text(graph, item_ref, "source_name"),
+                _optional_text(graph, item_ref, "snippet"),
+            ))
+    return tuple(citations)
+
+
+def normalize(
+    graph: HydrationGraph,
+    message_refs: tuple[int, ...],
+    title: str | None = None,
+) -> Conversation:
     messages: list[Message] = []
     for message_ref in message_refs:
         author_ref = graph.field_ref(message_ref, "author")
@@ -281,15 +391,20 @@ def normalize(graph: HydrationGraph, message_refs: tuple[int, ...]) -> Conversat
                     continue
                 raise UnsupportedContentError(f"unsupported visible multimodal part type {part_type!r}")
             raise UnsupportedContentError(f"unsupported visible multimodal part {type(part).__name__}")
-        messages.append(Message(role, content_type, tuple(parts)))
-    return Conversation(tuple(messages))
+        text_parts = [part.text for part in parts if isinstance(part, TextPart)]
+        citations = _normalize_citations(graph, message_ref, "".join(text_parts))
+        messages.append(Message(role, content_type, tuple(parts), citations))
+    return Conversation(title, tuple(messages))
 
 
 def parse_share_html(html: str) -> Conversation:
     graph = decode_hydration(html)
     data_ref = locate_share_data(graph)
     branch = reconstruct_branch(graph, data_ref)
-    return normalize(graph, project_visible(graph, branch))
+    title = graph.field(data_ref, "title")
+    if title is not None and not isinstance(title, str):
+        raise ParseError("share title is malformed")
+    return normalize(graph, project_visible(graph, branch), title)
 
 
 def parse_share(url: str, fetcher: Callable[[str], str] = fetch_share) -> Conversation:

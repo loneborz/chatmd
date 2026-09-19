@@ -5,6 +5,9 @@ import unittest
 import chatmd
 
 
+MISSING = object()
+
+
 class Slots:
     def __init__(self) -> None:
         self.values: list[object] = []
@@ -21,6 +24,70 @@ class Slots:
 
     def array(self, *refs: int) -> int:
         return self.add(list(refs))
+
+    def encode(self, value: object) -> int:
+        if isinstance(value, dict):
+            return self.obj(**{key: self.encode(item) for key, item in value.items()})
+        if isinstance(value, list):
+            return self.array(*(self.encode(item) for item in value))
+        return self.add(value)
+
+
+def citation_fixture(
+    text: str,
+    references: list[dict[str, object]] | None = None,
+    title: object = MISSING,
+) -> str:
+    s = Slots()
+    s.add({})
+
+    def message(role: str, body: str, content_references: list[dict[str, object]] | None = None) -> int:
+        metadata_fields = {}
+        if content_references is not None:
+            metadata_fields["content_references"] = s.encode(content_references)
+        return s.obj(
+            author=s.obj(role=s.text(role)),
+            content=s.obj(content_type=s.text("text"), parts=s.array(s.text(body))),
+            metadata=s.obj(**metadata_fields),
+            recipient=s.text("all"),
+        )
+
+    root = s.obj(id=s.text("root"))
+    user = s.obj(
+        id=s.text("user"), parent=s.text("root"), message=message("user", "question")
+    )
+    assistant = s.obj(
+        id=s.text("assistant"), parent=s.text("user"),
+        message=message("assistant", text, references),
+    )
+    mapping = s.obj(root=root, user=user, assistant=assistant)
+    data_fields = {"mapping": mapping, "current_node": s.text("assistant")}
+    if title is not MISSING:
+        data_fields["title"] = s.encode(title)
+    data = s.obj(**data_fields)
+    loader = s.obj(**{chatmd.ROUTE: s.obj(serverResponse=s.obj(data=data))})
+    s.values[0] = {f"_{s.text('loaderData')}": loader}
+    return f"<script>{chatmd.MARKER}{json.dumps(json.dumps(s.values))})</script>"
+
+
+def grouped_reference(
+    marker: str,
+    start: object,
+    end: object,
+    *,
+    url: object = "https://example.com/exact?b=2&a=1#fragment",
+    **item_fields: object,
+) -> dict[str, object]:
+    item = {"url": url, **item_fields}
+    return {
+        "type": "grouped_webpages",
+        "matched_text": marker,
+        "start_idx": start,
+        "end_idx": end,
+        "status": "done",
+        "style": None,
+        "items": [item],
+    }
 
 
 def fixture(
@@ -164,7 +231,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(len(visible), 2)
         self.assertEqual(
             chatmd.normalize(graph, visible),
-            chatmd.Conversation((
+            chatmd.Conversation(None, (
                 chatmd.Message("user", "multimodal_text", (
                     chatmd.TextPart("  exact **source**\n\n"),
                     chatmd.ImagePart("sediment://asset/example"),
@@ -172,6 +239,99 @@ class ParserTests(unittest.TestCase):
                 chatmd.Message("assistant", "text", (chatmd.TextPart("answer"),)),
             )),
         )
+
+    def test_title_is_exact_or_explicitly_absent(self) -> None:
+        self.assertEqual(
+            chatmd.parse_share_html(citation_fixture("answer", title="  Exact title  ")).title,
+            "  Exact title  ",
+        )
+        self.assertIsNone(chatmd.parse_share_html(citation_fixture("answer")).title)
+
+    def test_active_citation_preserves_text_and_converts_code_points_to_utf8_bytes(self) -> None:
+        marker = "\ue200cite\ue202source\ue201"
+        text = f"é {marker} unchanged"
+        reference = grouped_reference(
+            marker,
+            2,
+            2 + len(marker),
+            title="Exact source title",
+            attribution="Exact attribution",
+            snippet="Exact supporting snippet",
+        )
+
+        conversation = chatmd.parse_share_html(citation_fixture(text, [reference]))
+
+        self.assertEqual(conversation.messages[1].parts, (chatmd.TextPart(text),))
+        self.assertEqual(conversation.messages[1].citations, (
+            chatmd.Citation(
+                3,
+                3 + len(marker.encode()),
+                marker,
+                "https://example.com/exact?b=2&a=1#fragment",
+                "Exact source title",
+                "Exact attribution",
+                "Exact supporting snippet",
+            ),
+        ))
+
+    def test_repeated_markers_keep_distinct_anchors(self) -> None:
+        marker = "\ue200cite\ue202same\ue201"
+        text = f"{marker} and {marker}"
+        second = len(marker) + 5
+        references = [
+            grouped_reference(marker, 0, len(marker)),
+            grouped_reference(marker, second, second + len(marker), url="https://example.org/two"),
+        ]
+
+        citations = chatmd.parse_share_html(citation_fixture(text, references)).messages[1].citations
+
+        self.assertEqual([(item.start_byte, item.end_byte) for item in citations], [
+            (0, len(marker.encode())),
+            (len(f"{marker} and ".encode()), len(text.encode())),
+        ])
+
+    def test_marker_shaped_text_without_structured_reference_is_ordinary_text(self) -> None:
+        text = "ordinary \ue200cite\ue202not-active\ue201 text"
+        message = chatmd.parse_share_html(citation_fixture(text)).messages[1]
+        self.assertEqual(message.parts, (chatmd.TextPart(text),))
+        self.assertEqual(message.citations, ())
+
+    def test_optional_citation_fields_are_not_synthesized(self) -> None:
+        marker = "\ue200cite\ue202source\ue201"
+        citation = chatmd.parse_share_html(citation_fixture(
+            marker, [grouped_reference(marker, 0, len(marker))]
+        )).messages[1].citations[0]
+        self.assertIsNone(citation.title)
+        self.assertIsNone(citation.attribution)
+        self.assertIsNone(citation.snippet)
+
+    def test_inactive_structured_reference_is_not_a_citation(self) -> None:
+        marker = "\ue200cite\ue202source\ue201"
+        for field, value in (("style", "hidden"), ("status", "loading"), ("status", "error")):
+            with self.subTest(field=field, value=value):
+                reference = grouped_reference(marker, 0, len(marker))
+                reference[field] = value
+                message = chatmd.parse_share_html(citation_fixture(marker, [reference])).messages[1]
+                self.assertEqual(message.citations, ())
+
+    def test_malformed_active_citations_fail_visibly(self) -> None:
+        marker = "\ue200cite\ue202source\ue201"
+        cases = {
+            "anchor or marker": grouped_reference(marker, None, len(marker)),
+            "does not match": grouped_reference(marker, 1, len(marker)),
+            "URL is missing": grouped_reference(marker, 0, len(marker), url=None),
+            "URL is not absolute": grouped_reference(marker, 0, len(marker), url="relative/path"),
+        }
+        for error, reference in cases.items():
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(chatmd.ParseError, error):
+                    chatmd.parse_share_html(citation_fixture(marker, [reference]))
+
+    def test_unsupported_anchored_reference_type_fails_visibly(self) -> None:
+        marker = "\ue200cite\ue202source\ue201"
+        reference = {"type": "future_citation", "matched_text": marker}
+        with self.assertRaisesRegex(chatmd.UnsupportedContentError, "citation type"):
+            chatmd.parse_share_html(citation_fixture(marker, [reference]))
 
     def test_production_parser_boundary(self) -> None:
         self.assertEqual(chatmd.parse_share_html(fixture()).messages[0].role, "user")
