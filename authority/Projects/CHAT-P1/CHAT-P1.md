@@ -75,6 +75,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-6|CHAT-6]]: Sync the public GitHub README with accepted ChatMD state
 - [[Projects/CHAT-P1/Work/CHAT-7|CHAT-7]]: Make post-capture shared-link exposure explicit
 - [[Projects/CHAT-P1/Work/CHAT-8|CHAT-8]]: Make ChatMD a normal local CLI command
+- [[Projects/CHAT-P1/Work/CHAT-9|CHAT-9]]: Capture a copied ChatGPT share from the clipboard
 
 ## Owned Documents
 
