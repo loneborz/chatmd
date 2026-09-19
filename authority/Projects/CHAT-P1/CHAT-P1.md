@@ -74,6 +74,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-5|CHAT-5]]: Make local ChatMD capture reliable
 - [[Projects/CHAT-P1/Work/CHAT-6|CHAT-6]]: Sync the public GitHub README with accepted ChatMD state
 - [[Projects/CHAT-P1/Work/CHAT-7|CHAT-7]]: Make post-capture shared-link exposure explicit
+- [[Projects/CHAT-P1/Work/CHAT-8|CHAT-8]]: Make ChatMD a normal local CLI command
 
 ## Owned Documents
 
