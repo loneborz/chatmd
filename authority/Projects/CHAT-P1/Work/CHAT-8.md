@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Make ChatMD a normal local CLI command",
   "authority": "local-native",
-  "revision": 1,
+  "revision": 2,
   "status": "active",
   "created_at": "2026-09-19T16:14:44Z",
-  "updated_at": "2026-09-19T16:14:44Z",
+  "updated_at": "2026-09-19T16:21:55Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -75,13 +75,14 @@ Inspected implementation decision:
 - Document one local install command, run from a ChatMD checkout:
 
 ```sh
-uv tool install --editable .
+uv tool install .
 ```
 
 That command is the chosen setup step because this machine already has `uv`,
 does not have `pipx`, already uses `uvx` for repository quality checks, and
-already has `~/.local/bin` on PATH. The install may link to the checkout as
-editable installation state. Product source must not embed that path.
+already has `~/.local/bin` on PATH. The installed command is a copy of the
+package at install time and must not remain coupled to live repository source
+files. Product source must not embed this machine's repository path.
 
 Also required:
 
@@ -174,7 +175,7 @@ explicitly authorizes that action.
 - ID: `CHAT-8`
 - Kind: `issue`
 - Status: `active`
-- Revision: `1`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
