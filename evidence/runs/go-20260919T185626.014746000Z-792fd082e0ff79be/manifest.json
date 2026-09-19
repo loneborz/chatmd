@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "run_id": "go-20260919T185626.014746000Z-792fd082e0ff79be",
+  "retained_at": "2026-09-19T19:01:03.764415Z",
+  "source_run_directory": "/Users/marwan/Developer/projects/chatmd/.codex/runs/go-20260919T185626.014746000Z-792fd082e0ff79be",
+  "work_id": "CHAT-9",
+  "work_title": "Capture a copied ChatGPT share from the clipboard",
+  "work_source_path": "Projects/CHAT-P1/Work/CHAT-9.md",
+  "frozen_work_revision": 1,
+  "frozen_authority_sha256": "a11b8b3513d7278afc59a54cc90e262ddd057033612c0b1388fa817a7f9f23d3",
+  "retention_decides_acceptance": false,
+  "human_acceptance_location": "Work authority CHAT-9 at Projects/CHAT-P1/Work/CHAT-9.md",
+  "files": [
+    {
+      "name": "run.json",
+      "role": "frozen execution authority and preparation evidence",
+      "bytes": 16047,
+      "sha256": "c88612e36e6c7794f1fb7e791dd9efa4df022c5c5f7257202f51e81666f237b6"
+    },
+    {
+      "name": "prepared.commit",
+      "role": "authoritative prepared boundary",
+      "bytes": 9,
+      "sha256": "cb064c1339ffa3d7777bcb0459de3dceddb9146156dde58065a4ac826b029aa7"
+    },
+    {
+      "name": "execution.json",
+      "role": "finalized execution evidence",
+      "bytes": 7973,
+      "sha256": "b2c702a7e8e31b1bb7e6a44b19a151a464638054aba4105ee116c48da08f1c2a"
+    }
+  ],
+  "artifacts": [],
+  "not_retained": [
+    {
+      "name": "authority.md",
+      "reason": "duplicate of frozen_authority_snapshot already retained in run.json"
+    },
+    {
+      "name": "run.md",
+      "reason": "generated human-readable projection of run.json"
+    }
+  ]
+}

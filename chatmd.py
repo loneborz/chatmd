@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import tempfile
 import unicodedata
 from collections.abc import Callable, Sequence
@@ -645,6 +646,53 @@ def write_markdown(
             pass
 
 
+def _read_macos_clipboard(
+    runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+) -> str:
+    if runner is None:
+        runner = subprocess.run
+    try:
+        completed = runner(
+            ["pbpaste"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        raise ValueError("macOS clipboard command pbpaste is unavailable") from error
+    if completed.returncode != 0:
+        raise ValueError("unable to read the macOS clipboard")
+    return completed.stdout
+
+
+def _clipboard_share_url(contents: str) -> str:
+    candidate = contents.strip()
+    if not candidate:
+        raise ValueError("clipboard is empty")
+    if any(char.isspace() for char in candidate) or any(
+        ord(char) < 32 or ord(char) == 127 for char in candidate
+    ):
+        raise ValueError("clipboard is not a URL")
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError as error:
+        raise ValueError("clipboard is not a URL") from error
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("clipboard is not a URL")
+    host = parsed.hostname or ""
+    path = parsed.path
+    share_id = path.removeprefix("/share/").split("/", 1)[0] if path.startswith("/share/") else ""
+    if (
+        parsed.scheme != "https"
+        or host != "chatgpt.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or not share_id
+    ):
+        raise ValueError("clipboard is not a ChatGPT share URL")
+    return candidate
+
+
 def _validate_share_url(url: str) -> None:
     if not url or any(ord(char) < 32 or ord(char) == 127 for char in url):
         raise ValueError("expected an absolute HTTP(S) share URL")
@@ -673,14 +721,32 @@ def _capture_complete_message(output: Path, source_url: str) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="chatmd")
-    parser.add_argument("url", help="one public ChatGPT share URL")
+    parser = argparse.ArgumentParser(
+        prog="chatmd",
+        description=(
+            "Capture a public ChatGPT share as source-faithful local Markdown. "
+            "Pass one public HTTP(S) share URL, or omit it to use a copied "
+            "https://chatgpt.com/share/... URL from the macOS clipboard."
+        ),
+    )
+    parser.add_argument(
+        "url",
+        nargs="?",
+        help=(
+            "optional public HTTP(S) share URL; if omitted, read a copied "
+            "https://chatgpt.com/share/... URL from the macOS clipboard"
+        ),
+    )
     arguments = parser.parse_args(argv)
     try:
-        _validate_share_url(arguments.url)
-        conversation = parse_share(arguments.url)
-        output = write_markdown(conversation, arguments.url)
-        print(_capture_complete_message(output, arguments.url))
+        if arguments.url is None:
+            source_url = _clipboard_share_url(_read_macos_clipboard())
+        else:
+            source_url = arguments.url
+        _validate_share_url(source_url)
+        conversation = parse_share(source_url)
+        output = write_markdown(conversation, source_url)
+        print(_capture_complete_message(output, source_url))
     except (OSError, ParseError, ValueError) as error:
         parser.error(str(error))
     return 0

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -789,12 +790,14 @@ class WorkflowTests(unittest.TestCase):
         with (
             patch("chatmd.parse_share", return_value=conversation) as parse_share,
             patch("chatmd.write_markdown", side_effect=write_markdown) as write_markdown_mock,
+            patch("chatmd._read_macos_clipboard") as read_clipboard,
             redirect_stdout(stdout),
         ):
             self.assertEqual(chatmd.main([source_url]), 0)
 
         parse_share.assert_called_once_with(source_url)
         write_markdown_mock.assert_called_once_with(conversation, source_url)
+        read_clipboard.assert_not_called()
         self.assertTrue(write_state["called"])
         self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
 
@@ -867,18 +870,20 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(stdout.getvalue(), "")
             assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
-    def test_main_rejects_missing_extra_and_invalid_input(self) -> None:
-        for arguments in ([], ["https://example.com/one", "https://example.com/two"], ["not-a-url"]):
+    def test_main_rejects_extra_and_invalid_explicit_input(self) -> None:
+        for arguments in (["https://example.com/one", "https://example.com/two"], ["not-a-url"]):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with (
                 self.subTest(arguments=arguments),
+                patch("chatmd._read_macos_clipboard") as read_clipboard,
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
                 self.assertRaises(SystemExit) as error,
             ):
                 chatmd.main(arguments)
             self.assertEqual(error.exception.code, 2)
+            read_clipboard.assert_not_called()
             assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
     def test_help_is_a_normal_cli_command(self) -> None:
@@ -893,10 +898,107 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 0)
         help_text = stdout.getvalue()
         self.assertIn("usage: chatmd", help_text)
-        self.assertIn("one public ChatGPT share URL", help_text)
+        self.assertIn("optional public HTTP(S) share URL", help_text)
+        self.assertIn("https://chatgpt.com/share/", help_text)
+        self.assertIn("macOS clipboard", help_text)
         self.assertNotIn("chatmd.py", help_text)
         self.assertEqual(stderr.getvalue(), "")
         assert_no_successful_capture_result(self, help_text, stderr.getvalue())
+
+
+class ClipboardTests(unittest.TestCase):
+    def test_zero_argument_uses_valid_clipboard_share_url(self) -> None:
+        source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
+        conversation = user_conversation("Title", "visible body")
+        stdout = io.StringIO()
+        saved = Path("/tmp/chatmd-isolated/2026/09/Title.md")
+
+        with (
+            patch("chatmd._read_macos_clipboard", return_value=f"\n  {source_url}  \n"),
+            patch("chatmd.parse_share", return_value=conversation) as parse_share,
+            patch("chatmd.write_markdown", return_value=saved) as write_markdown,
+            redirect_stdout(stdout),
+        ):
+            self.assertEqual(chatmd.main([]), 0)
+
+        parse_share.assert_called_once_with(source_url)
+        write_markdown.assert_called_once_with(conversation, source_url)
+        self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
+
+    def test_explicit_url_does_not_read_clipboard(self) -> None:
+        conversation = user_conversation()
+        saved = Path("/tmp/chatmd-isolated/2026/09/Capture.md")
+        with (
+            patch("chatmd._read_macos_clipboard") as read_clipboard,
+            patch("chatmd.parse_share", return_value=conversation) as parse_share,
+            patch("chatmd.write_markdown", return_value=saved),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(chatmd.main([SOURCE_URL]), 0)
+        read_clipboard.assert_not_called()
+        parse_share.assert_called_once_with(SOURCE_URL)
+
+    def test_clipboard_failures_are_nonzero_without_capture_or_success_output(self) -> None:
+        cases = (
+            ("   \n", "clipboard is empty"),
+            ("not a url", "clipboard is not a URL"),
+            ("see https://chatgpt.com/share/example", "clipboard is not a URL"),
+            ("https://example.com/share/example", "clipboard is not a ChatGPT share URL"),
+            ("http://chatgpt.com/share/example", "clipboard is not a ChatGPT share URL"),
+        )
+        for contents, message in cases:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                self.subTest(contents=contents),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+                patch("chatmd._read_macos_clipboard", return_value=contents),
+                patch("chatmd.parse_share") as parse_share,
+                patch("chatmd.write_markdown") as write_markdown,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                chatmd.main([])
+            self.assertEqual(caught.exception.code, 2)
+            self.assertIn(message, stderr.getvalue())
+            parse_share.assert_not_called()
+            write_markdown.assert_not_called()
+            self.assertEqual(markdown_files(Path(temporary)), [])
+            assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
+
+    def test_clipboard_command_failure_does_not_capture(self) -> None:
+        failures = (
+            FileNotFoundError("pbpaste"),
+            subprocess.CompletedProcess(["pbpaste"], 1, stdout="", stderr="failed"),
+        )
+        for result in failures:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            side_effect = result if isinstance(result, Exception) else None
+            return_value = None if isinstance(result, Exception) else result
+            with (
+                self.subTest(result=result),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+                patch("chatmd.subprocess.run", side_effect=side_effect, return_value=return_value),
+                patch("chatmd.parse_share") as parse_share,
+                patch("chatmd.write_markdown") as write_markdown,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                chatmd.main([])
+            self.assertEqual(caught.exception.code, 2)
+            if isinstance(result, FileNotFoundError):
+                self.assertIn("pbpaste is unavailable", stderr.getvalue())
+            else:
+                self.assertIn("unable to read the macOS clipboard", stderr.getvalue())
+            parse_share.assert_not_called()
+            write_markdown.assert_not_called()
+            self.assertEqual(markdown_files(Path(temporary)), [])
+            assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
 
 class EntrypointTests(unittest.TestCase):
@@ -955,16 +1057,26 @@ class EntrypointTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            pbpaste = fake_bin / "pbpaste"
+            pbpaste.write_text("#!/bin/sh\nprintf '%s' 'not a url'\n", encoding="utf-8")
+            pbpaste.chmod(0o755)
+            isolated_env = os.environ.copy()
+            isolated_env["PATH"] = str(fake_bin)
             missing_result = subprocess.run(
                 [str(chatmd_bin)],
                 cwd=outside,
                 capture_output=True,
                 text=True,
                 check=False,
+                env=isolated_env,
             )
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
             self.assertIn("usage: chatmd", help_result.stdout)
-            self.assertIn("one public ChatGPT share URL", help_result.stdout)
+            self.assertIn("optional public HTTP(S) share URL", help_result.stdout)
+            self.assertIn("https://chatgpt.com/share/", help_result.stdout)
+            self.assertIn("macOS clipboard", help_result.stdout)
             self.assertNotIn("chatmd.py", help_result.stdout)
             self.assertNotIn(str(REPO_ROOT), help_result.stdout)
             assert_no_successful_capture_result(
@@ -972,6 +1084,7 @@ class EntrypointTests(unittest.TestCase):
             )
             self.assertEqual(missing_result.returncode, 2, missing_result.stderr)
             self.assertIn("usage: chatmd", missing_result.stderr)
+            self.assertIn("clipboard is not a URL", missing_result.stderr)
             assert_no_successful_capture_result(
                 self, missing_result.stdout, missing_result.stderr
             )

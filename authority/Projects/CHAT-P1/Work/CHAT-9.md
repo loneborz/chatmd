@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Capture a copied ChatGPT share from the clipboard",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-19T18:51:00Z",
-  "updated_at": "2026-09-19T18:51:00Z",
+  "updated_at": "2026-09-19T19:05:05Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -272,46 +272,46 @@ cookies, or signed URLs in tracked evidence.
 
 ## Acceptance criteria
 
-- [ ] `chatmd https://chatgpt.com/share/...` continues to work through the
+- [x] `chatmd https://chatgpt.com/share/...` continues to work through the
       existing explicit invocation path.
-- [ ] `chatmd` with no positional URL reads the macOS clipboard and uses a
+- [x] `chatmd` with no positional URL reads the macOS clipboard and uses a
       valid copied `https://chatgpt.com/share/...` URL as the capture
       source.
-- [ ] Clipboard input is resolved before the existing capture pipeline,
+- [x] Clipboard input is resolved before the existing capture pipeline,
       and explicit and clipboard invocation share the same downstream
       capture implementation.
-- [ ] An explicit URL never causes clipboard access.
-- [ ] Surrounding clipboard whitespace does not prevent a valid copied
+- [x] An explicit URL never causes clipboard access.
+- [x] Surrounding clipboard whitespace does not prevent a valid copied
       share URL from working.
-- [ ] Empty clipboard input fails clearly with non-zero status and creates
+- [x] Empty clipboard input fails clearly with non-zero status and creates
       no capture.
-- [ ] Non-URL clipboard input fails clearly with non-zero status and
+- [x] Non-URL clipboard input fails clearly with non-zero status and
       creates no capture.
-- [ ] A normal HTTP(S) URL that is not an accepted `chatgpt.com/share/...`
+- [x] A normal HTTP(S) URL that is not an accepted `chatgpt.com/share/...`
       clipboard value fails clearly and creates no capture.
-- [ ] Clipboard read failure or an unavailable native clipboard command
+- [x] Clipboard read failure or an unavailable native clipboard command
       fails clearly and creates no capture.
-- [ ] Failed clipboard resolution does not emit `CAPTURE COMPLETE`,
+- [x] Failed clipboard resolution does not emit `CAPTURE COMPLETE`,
       `Saved:`, `Shared source:`, or the CHAT-7 security result.
-- [ ] Existing CHAT-7 successful post-capture security output remains
+- [x] Existing CHAT-7 successful post-capture security output remains
       unchanged.
-- [ ] Existing parser, serializer, writer, collision, and capture-root
+- [x] Existing parser, serializer, writer, collision, and capture-root
       behavior remain unchanged.
-- [ ] `chatmd --help` clearly communicates both explicit URL invocation
+- [x] `chatmd --help` clearly communicates both explicit URL invocation
       and zero-argument clipboard behavior.
-- [ ] README documents both explicit URL invocation and zero-argument
+- [x] README documents both explicit URL invocation and zero-argument
       clipboard capture without presenting quote removal as new work.
-- [ ] Existing relevant tests continue to pass, with focused tests added
+- [x] Existing relevant tests continue to pass, with focused tests added
       for clipboard behavior.
-- [ ] The installed `chatmd` entrypoint is verified, not only direct
+- [x] The installed `chatmd` entrypoint is verified, not only direct
       `chatmd.py` execution.
-- [ ] `python3 -m unittest -v`, `npx --yes pyright`, `uvx ruff check .`,
+- [x] `python3 -m unittest -v`, `npx --yes pyright`, `uvx ruff check .`,
       and `git diff --check` pass, with failures and limitations reported
       honestly.
-- [ ] The intended implementation diff contains no unrelated scope.
-- [ ] Completion state remains explicit and separate from human
+- [x] The intended implementation diff contains no unrelated scope.
+- [x] Completion state remains explicit and separate from human
       acceptance.
-- [ ] A human accepts the resulting clipboard and explicit-invocation
+- [x] A human accepts the resulting clipboard and explicit-invocation
       behavior against this Work contract.
 
 ## Completion boundary
@@ -326,13 +326,119 @@ behavior.
 Do not mark this Work done, check human-accepted criteria, reconcile
 authority, commit the implementation, or push unless a later human
 decision explicitly authorizes that action.
+
+## Implementation evidence
+
+The accepted product implementation is the tracked diff on authority
+baseline `93d0fb1c53cab200988c0dc82563ee779d9a3ed8`. It changes exactly:
+
+- `README.md`;
+- `chatmd.py`;
+- `test_chatmd.py`.
+
+`main()` keeps explicit `chatmd <share-url>` on the existing capture path
+and does not read the clipboard when a positional URL is supplied. With no
+URL argument, it reads the macOS clipboard through native `pbpaste` via
+Python standard-library subprocess APIs, trims surrounding whitespace
+only, and requires one `https://chatgpt.com/share/...` URL. Query and
+fragment components are allowed. Arbitrary clipboard prose is not searched
+for an embedded link. Clipboard-mode validation is stricter than the
+unchanged generic explicit HTTP(S) URL check.
+
+After URL resolution, both invocation forms call the same
+`_validate_share_url()`, `parse_share()`, `write_markdown()`, and CHAT-7
+success output. Missing `pbpaste` or a failed clipboard read fails clearly
+without fetching or writing a capture.
+
+README Quick start documents both invocations. No browser extension,
+Shortcut, menu bar application, clipboard watcher, daemon, third-party
+clipboard library, packaging redesign, automatic share revocation, or
+CHAT-D1 bundle change was introduced. Parsing, serialization, collision,
+capture-root, packaging, and CHAT-7 success output were not changed.
+
+## Verification
+
+Accepted LWA execution is run
+`go-20260919T185626.014746000Z-792fd082e0ff79be`, frozen against CHAT-9
+revision 1. The run finalized with disposition `completed` by executor
+`cursor-grok-4.6`. Starting and resulting HEAD before the completion
+commit remained `93d0fb1c53cab200988c0dc82563ee779d9a3ed8`.
+
+Retained evidence is present at
+`evidence/runs/go-20260919T185626.014746000Z-792fd082e0ff79be`. Retention
+does not decide acceptance.
+
+Recorded verification:
+
+- `python3 -m unittest -v` - exit 0 at `2026-09-19T19:00:02Z` (48 tests,
+  including focused clipboard tests and the CHAT-7 post-capture security
+  result);
+- `npx --yes pyright` - exit 0 at `2026-09-19T19:00:05Z`;
+- `uvx ruff check .` - exit 0 at `2026-09-19T19:00:05Z`;
+- `git diff --check` - exit 0 at `2026-09-19T19:00:05Z`;
+- `uv tool install --reinstall .` - exit 0 at `2026-09-19T19:00:17Z`;
+- `cd /tmp && command -v chatmd && chatmd --help` - exit 0 at
+  `2026-09-19T19:00:18Z`;
+- isolated installed `chatmd` with non-URL clipboard input - exit 0 at
+  `2026-09-19T19:00:18Z`;
+- installed `chatmd not-a-url` with a failing `pbpaste` on PATH still used
+  the explicit validator and did not read the clipboard - exit 0 at
+  `2026-09-19T19:00:18Z`;
+- first isolated empty-clipboard wrapper - exit 1 at
+  `2026-09-19T19:00:18Z` because the wrapper script quoting was wrong, not
+  because product behavior failed;
+- isolated installed `chatmd` with `https://example.com/share/example` on
+  the clipboard - exit 0 at `2026-09-19T19:00:19Z`;
+- first missing-`pbpaste` wrapper - exit 1 at `2026-09-19T19:00:19Z`
+  because PATH hid `chatmd` itself, not because product behavior failed;
+- corrected isolated empty-clipboard installed invocation - exit 0 at
+  `2026-09-19T19:00:43Z`;
+- corrected installed missing-`pbpaste` invocation - exit 0 at
+  `2026-09-19T19:00:43Z`.
+
+No public conversation body, share identifier, credential, cookie, or
+signed URL is retained in tracked evidence.
+
+## Human acceptance
+
+Accepted at `2026-09-19T19:05:05Z` as complete for the CHAT-9 revision 1
+boundary.
+
+The human operator reviewed the implementation, automated verification,
+installed-entrypoint behavior, and a real end-to-end clipboard capture,
+then explicitly granted acceptance of CHAT-9 revision 1 and authorized
+end-to-end closeout.
+
+The accepted live result is: a ChatGPT share link was copied to the macOS
+clipboard, the operator ran only `chatmd`, capture completed, and ChatMD
+wrote:
+
+`/Users/marwan/My vault/Sources/ChatMD/2026/09/n8n Development Scale.md`
+
+The CLI reported `CAPTURE COMPLETE` and the expected CHAT-7 shared-link
+security warning. Closeout inspection confirmed that file exists as
+non-empty Markdown with the expected title heading and a ChatGPT share
+source line. The share identifier is not retained here.
+
+## Disposition
+
+`CHAT-9` is completed.
+
+Zero-argument `chatmd` captures a valid copied ChatGPT public share URL
+through the existing capture pipeline. Explicit `chatmd <share-url>`
+remains unchanged and does not read the clipboard. Invalid clipboard
+input fails clearly without fetching, writing, or emitting a successful
+capture result. Browser extensions, Shortcuts, menu bar applications,
+clipboard watchers, daemons, third-party clipboard libraries, packaging
+redesign, automatic revocation, and CHAT-D1 bundle work remain outside
+this Work.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-9`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 

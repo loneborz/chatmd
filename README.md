@@ -36,6 +36,17 @@ Then, from any directory:
 chatmd https://chatgpt.com/share/<public-share-id>
 ```
 
+Or copy the public share link in ChatGPT and run:
+
+```sh
+chatmd
+```
+
+Zero-argument `chatmd` reads the macOS clipboard and uses that text only when,
+after surrounding whitespace is removed, it is one
+`https://chatgpt.com/share/...` URL. It does not search other clipboard text
+for a link. Explicit `chatmd <share-url>` does not read the clipboard.
+
 On success, after the file is written, ChatMD prints a result in this form:
 
 ```text
@@ -53,7 +64,8 @@ Revoke it in ChatGPT > Settings > Data Controls > Shared Links.
 ```
 
 `chatmd --help` behaves as a normal CLI command. Shell quotes are not required
-around the share URL unless the URL itself needs quoting.
+around the share URL unless the URL itself needs quoting. Clipboard capture is
+macOS-native and requires the `pbpaste` command.
 
 This repository currently uses a machine-specific local capture root under
 `~/My vault/Sources/ChatMD`. The `~` form is README notation for privacy, not
@@ -154,9 +166,11 @@ content stops the run rather than producing an incomplete transcript.
 
 Persistence writes a complete Markdown body, then publishes it to the final
 path. Failures return a non-zero exit status. Missing, extra, or invalid CLI
-input also fails clearly. ChatMD accepts exactly one public HTTP(S) share URL.
-A successful capture does not revoke the public share; the CLI result tells the
-user to revoke it in ChatGPT settings.
+input also fails clearly. ChatMD accepts one public HTTP(S) share URL as an
+explicit argument, or a copied `https://chatgpt.com/share/...` URL from the
+macOS clipboard when no URL is supplied. Clipboard-mode validation is stricter
+than the explicit HTTP(S) URL check. A successful capture does not revoke the
+public share; the CLI result tells the user to revoke it in ChatGPT settings.
 
 ## Development and verification
 
@@ -199,4 +213,5 @@ ChatMD does not yet provide:
   content identity)
 
 It captures one public share URL at a time. Private conversations and ChatGPT
-authentication are outside the current workflow.
+authentication are outside the current workflow. Zero-argument clipboard
+capture is macOS-native and is not a watcher, daemon, or GUI.
