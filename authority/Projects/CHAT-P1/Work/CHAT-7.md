@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Make post-capture shared-link exposure explicit",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-19T15:45:00Z",
-  "updated_at": "2026-09-19T15:45:00Z",
+  "updated_at": "2026-09-19T16:04:59Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -125,24 +125,24 @@ fragility inside ChatMD.
 
 ## Acceptance criteria
 
-- [ ] A successful capture clearly reports `CAPTURE COMPLETE`.
-- [ ] A successful capture reports the actual persisted file path.
-- [ ] A successful capture reports the public share URL used as its source.
-- [ ] A successful capture explicitly states that the shared link still exists.
-- [ ] The result tells the user to revoke it through
+- [x] A successful capture clearly reports `CAPTURE COMPLETE`.
+- [x] A successful capture reports the actual persisted file path.
+- [x] A successful capture reports the public share URL used as its source.
+- [x] A successful capture explicitly states that the shared link still exists.
+- [x] The result tells the user to revoke it through
       `ChatGPT > Settings > Data Controls > Shared Links`.
-- [ ] The post-capture security result appears only after successful
+- [x] The post-capture security result appears only after successful
       persistence.
-- [ ] Validation, fetch, parse, and persistence failures do not emit a
+- [x] Validation, fetch, parse, and persistence failures do not emit a
       successful post-capture security result.
-- [ ] Collision captures still report the actual newly persisted path.
-- [ ] No automatic revocation, undocumented OpenAI API integration,
+- [x] Collision captures still report the actual newly persisted path.
+- [x] No automatic revocation, undocumented OpenAI API integration,
       browser-cookie handling, browser automation, or bulk deletion is added.
-- [ ] Existing tests continue to pass.
-- [ ] `python3 -m unittest -v`, `npx --yes pyright`,
+- [x] Existing tests continue to pass.
+- [x] `python3 -m unittest -v`, `npx --yes pyright`,
       `uvx ruff check .`, and `git diff --check` pass.
-- [ ] Local-native render and validate pass.
-- [ ] A human accepts the resulting behavior against this Work contract.
+- [x] Local-native render and validate pass.
+- [x] A human accepts the resulting behavior against this Work contract.
 
 ## Completion boundary
 
@@ -153,13 +153,89 @@ accepts the behavior.
 
 Do not mark this Work done, check human-accepted criteria, reconcile authority,
 commit, or push unless a later human decision explicitly authorizes that action.
+
+## Implementation evidence
+
+The reviewed CHAT-7 product change is the tracked diff on
+`ec0c9796bbee2321fe7751b0a2d220db9e1582fb`. It changes exactly:
+
+- `chatmd.py`;
+- `test_chatmd.py`;
+- `README.md`.
+
+`main()` still fetches, parses, serializes, and persists before printing.
+After `write_markdown(...)` succeeds, the CLI prints `CAPTURE COMPLETE`, the
+actual persisted path, the original shared source URL, that the shared link
+still exists, and the manual revoke path
+`ChatGPT > Settings > Data Controls > Shared Links`.
+
+Validation, fetch, parse, and persistence failures do not emit that successful
+post-capture result. Collision captures still preserve the existing file and
+report the actual newly persisted path.
+
+`README.md` was synchronized because the previous `Saved: <absolute-path>`
+success-output description became stale after this behavior.
+
+No automatic share revocation was implemented. No undocumented OpenAI or
+ChatGPT API, browser cookies, browser automation, private session state, or
+bulk shared-link deletion was introduced. Parsing, canonical conversation
+content, serialization, capture-root behavior, collision behavior, and CHAT-D1
+bundle semantics were not changed.
+
+## Verification
+
+Recorded LWA execution for run
+`go-20260919T155231.665409000Z-66f91abab38eceac` finalized with disposition
+`completed` by executor `cursor-grok-4.6-extra-high`. Starting and resulting
+implementation HEAD before final commit remained
+`ec0c9796bbee2321fe7751b0a2d220db9e1582fb`.
+
+The recorded quality gate results were:
+
+- `python3 -m unittest -v` - exit 0 at `2026-09-19T16:00:58Z`;
+- `npx --yes pyright` - exit 0 at `2026-09-19T16:00:58Z`;
+- `uvx ruff check .` - exit 0 at `2026-09-19T16:00:59Z`;
+- `git diff --check` - exit 0 at `2026-09-19T16:00:59Z`.
+
+Focused workflow tests prove the successful post-persistence CLI result and
+that validation, fetch, parse, and persistence failures do not emit
+`CAPTURE COMPLETE`, `Shared source:`, or the post-capture security warning.
+Collision captures report the actual newly persisted path. Existing capture and
+workflow tests continued to pass (42 tests).
+
+After authority reconciliation:
+
+- `local-native render` wrote the authority tree from current LWA source;
+- `local-native validate` reported the ChatMD authority root valid
+  (1 project, 7 issues, 1 document, 9 objects).
+
+No retained run bundle was added because CHAT-7 does not require durable
+retained evidence.
+
+## Human acceptance
+
+Accepted at `2026-09-19T16:04:59Z` as complete for the CHAT-7 boundary.
+
+The human operator reviewed the implementation diff and the finalized LWA
+execution evidence and explicitly authorized CHAT-7 acceptance and end-to-end
+finalization.
+
+## Disposition
+
+`CHAT-7` is completed.
+
+A successful ChatMD capture now makes the remaining public shared-link
+exposure explicit after persistence. Failure paths do not present capture as
+complete. Automatic revocation, undocumented OpenAI or ChatGPT APIs, browser
+cookies, browser automation, session extraction, bulk deletion, and CHAT-D1
+bundle work remain outside this Work.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-7`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 

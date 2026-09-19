@@ -30,10 +30,20 @@ From a checkout of this repository:
 python3 chatmd.py https://chatgpt.com/share/<public-share-id>
 ```
 
-On success, ChatMD prints the exact persisted path:
+On success, after the file is written, ChatMD prints a result in this form:
 
 ```text
-Saved: ~/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
+CAPTURE COMPLETE
+
+Saved:
+~/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
+
+Shared source:
+https://chatgpt.com/share/<public-share-id>
+
+SECURITY:
+This shared link still exists.
+Revoke it in ChatGPT > Settings > Data Controls > Shared Links.
 ```
 
 There is no install command. Run `chatmd.py` from the repository with Python 3.
@@ -55,8 +65,11 @@ packaged.
 - Empty, whitespace-only, and other contentless exports are rejected.
 - Failed fetch, parse, conversion, or filesystem operations do not create a
   successful-looking capture.
-- `Saved: <absolute-path>` is printed only after persistence, and it is the
-  exact file that was written.
+- The post-capture result is printed only after persistence. It reports
+  `CAPTURE COMPLETE`, the exact file that was written, the original share URL,
+  and an explicit warning that the shared link still exists.
+- Failed validation, fetch, parse, or persistence does not print
+  `CAPTURE COMPLETE` or the shared-link security warning.
 
 Year and month directories come from the local capture date and are created when
 missing. The filename is derived from the conversation title, with a
@@ -135,6 +148,8 @@ content stops the run rather than producing an incomplete transcript.
 Persistence writes a complete Markdown body, then publishes it to the final
 path. Failures return a non-zero exit status. Missing, extra, or invalid CLI
 input also fails clearly. ChatMD accepts exactly one public HTTP(S) share URL.
+A successful capture does not revoke the public share; the CLI result tells the
+user to revoke it in ChatGPT settings.
 
 ## Development and verification
 
@@ -172,6 +187,7 @@ ChatMD does not yet provide:
 - package installation, distribution, or release automation
 - LLM summarization, rewriting, or knowledge extraction
 - tagging, embeddings, RAG, or automatic promotion into a knowledge base
+- automatic shared-link revocation
 - the portable conversation bundle contract (`manifest.json`, `assets/`,
   content identity)
 

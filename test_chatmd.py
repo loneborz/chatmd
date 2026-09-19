@@ -12,6 +12,14 @@ import chatmd
 
 CAPTURE_DATE = date(2026, 9, 19)
 SOURCE_URL = "https://chatgpt.com/share/example"
+POST_CAPTURE_SUCCESS_MARKERS = (
+    "CAPTURE COMPLETE",
+    "Saved:",
+    "Shared source:",
+    "SECURITY:",
+    "This shared link still exists.",
+    "ChatGPT > Settings > Data Controls > Shared Links",
+)
 
 
 def user_conversation(title: str | None = "Capture", text: str = "hello") -> chatmd.Conversation:
@@ -27,6 +35,28 @@ def markdown_files(root: Path) -> list[Path]:
         for path in root.rglob("*.md")
         if not path.name.startswith(".")
     )
+
+
+def capture_complete_text(path: Path, source_url: str) -> str:
+    return (
+        "CAPTURE COMPLETE\n"
+        "\n"
+        "Saved:\n"
+        f"{path}\n"
+        "\n"
+        "Shared source:\n"
+        f"{source_url}\n"
+        "\n"
+        "SECURITY:\n"
+        "This shared link still exists.\n"
+        "Revoke it in ChatGPT > Settings > Data Controls > Shared Links.\n"
+    )
+
+
+def assert_no_successful_capture_result(test: unittest.TestCase, *streams: str) -> None:
+    combined = "".join(streams)
+    for marker in POST_CAPTURE_SUCCESS_MARKERS:
+        test.assertNotIn(marker, combined)
 
 MISSING = object()
 
@@ -739,19 +769,31 @@ class WorkflowTests(unittest.TestCase):
                 chatmd.write_markdown(valid, SOURCE_URL)
             self.assertEqual(markdown_files(root), [])
 
-    def test_main_reports_saved_absolute_path_after_persistence(self) -> None:
+    def test_main_reports_capture_complete_only_after_persistence(self) -> None:
         source_url = "https://chatgpt.com/share/example?b=2&a=1#fragment"
         conversation = user_conversation("Title", "visible body")
         stdout = io.StringIO()
         saved = Path("/tmp/chatmd-isolated/2026/09/Title.md")
-        with patch("chatmd.parse_share", return_value=conversation) as parse_share, patch(
-            "chatmd.write_markdown", return_value=saved
-        ) as write_markdown, redirect_stdout(stdout):
+        write_state = {"called": False}
+
+        def write_markdown(written: chatmd.Conversation, url: str) -> Path:
+            self.assertEqual(written, conversation)
+            self.assertEqual(url, source_url)
+            self.assertEqual(stdout.getvalue(), "")
+            write_state["called"] = True
+            return saved
+
+        with (
+            patch("chatmd.parse_share", return_value=conversation) as parse_share,
+            patch("chatmd.write_markdown", side_effect=write_markdown) as write_markdown_mock,
+            redirect_stdout(stdout),
+        ):
             self.assertEqual(chatmd.main([source_url]), 0)
 
         parse_share.assert_called_once_with(source_url)
-        write_markdown.assert_called_once_with(conversation, source_url)
-        self.assertEqual(stdout.getvalue(), f"Saved: {saved}\n")
+        write_markdown_mock.assert_called_once_with(conversation, source_url)
+        self.assertTrue(write_state["called"])
+        self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
 
     def test_main_reports_actual_path_after_collision_and_preserves_existing_file(self) -> None:
         conversation = user_conversation("Title", "first body")
@@ -772,8 +814,8 @@ class WorkflowTests(unittest.TestCase):
 
             first = (root / "2026" / "09" / "Title.md").resolve()
             second = (root / "2026" / "09" / "Title-2.md").resolve()
-            self.assertEqual(first_out.getvalue(), f"Saved: {first}\n")
-            self.assertEqual(second_out.getvalue(), f"Saved: {second}\n")
+            self.assertEqual(first_out.getvalue(), capture_complete_text(first, SOURCE_URL))
+            self.assertEqual(second_out.getvalue(), capture_complete_text(second, SOURCE_URL))
             self.assertEqual(first.read_text(encoding="utf-8"), original)
             self.assertTrue(second.is_file())
 
@@ -781,29 +823,60 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for error in (OSError("fetch failed"), chatmd.ParseError("share is malformed")):
+                stdout = io.StringIO()
                 stderr = io.StringIO()
                 with (
                     self.subTest(error=error),
                     patch("chatmd.CAPTURE_ROOT", root),
                     patch("chatmd.parse_share", side_effect=error),
+                    patch("chatmd.write_markdown") as write_markdown,
+                    redirect_stdout(stdout),
                     redirect_stderr(stderr),
                     self.assertRaises(SystemExit) as caught,
                 ):
                     chatmd.main([SOURCE_URL])
                 self.assertEqual(caught.exception.code, 2)
                 self.assertIn(str(error), stderr.getvalue())
-                self.assertNotIn("Saved:", stderr.getvalue())
+                write_markdown.assert_not_called()
+                assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
             self.assertEqual(markdown_files(root), [])
+
+    def test_main_persistence_failure_does_not_emit_capture_complete(self) -> None:
+        conversation = user_conversation("Title", "visible body")
+        for error in (
+            OSError("write failed"),
+            chatmd.ParseError("conversation has no meaningful content"),
+        ):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                self.subTest(error=error),
+                patch("chatmd.parse_share", return_value=conversation),
+                patch("chatmd.write_markdown", side_effect=error) as write_markdown,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                chatmd.main([SOURCE_URL])
+            self.assertEqual(caught.exception.code, 2)
+            write_markdown.assert_called_once_with(conversation, SOURCE_URL)
+            self.assertIn(str(error), stderr.getvalue())
+            self.assertEqual(stdout.getvalue(), "")
+            assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
     def test_main_rejects_missing_extra_and_invalid_input(self) -> None:
         for arguments in ([], ["https://example.com/one", "https://example.com/two"], ["not-a-url"]):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
             with (
                 self.subTest(arguments=arguments),
-                redirect_stderr(io.StringIO()),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
                 self.assertRaises(SystemExit) as error,
             ):
                 chatmd.main(arguments)
             self.assertEqual(error.exception.code, 2)
+            assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
 
 if __name__ == "__main__":

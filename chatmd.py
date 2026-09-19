@@ -656,6 +656,22 @@ def _validate_share_url(url: str) -> None:
         raise ValueError("expected an absolute HTTP(S) share URL")
 
 
+def _capture_complete_message(output: Path, source_url: str) -> str:
+    return (
+        "CAPTURE COMPLETE\n"
+        "\n"
+        "Saved:\n"
+        f"{output}\n"
+        "\n"
+        "Shared source:\n"
+        f"{source_url}\n"
+        "\n"
+        "SECURITY:\n"
+        "This shared link still exists.\n"
+        "Revoke it in ChatGPT > Settings > Data Controls > Shared Links."
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chatmd")
     parser.add_argument("url", help="one public ChatGPT share URL")
@@ -664,7 +680,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _validate_share_url(arguments.url)
         conversation = parse_share(arguments.url)
         output = write_markdown(conversation, arguments.url)
-        print(f"Saved: {output}")
+        print(_capture_complete_message(output, arguments.url))
     except (OSError, ParseError, ValueError) as error:
         parser.error(str(error))
     return 0
