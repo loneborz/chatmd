@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Extend canonical conversation model with title and citations",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-19T00:02:32Z",
-  "updated_at": "2026-09-19T00:02:32Z",
+  "updated_at": "2026-09-19T00:29:08Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -99,22 +99,53 @@ Verification must include the repository's relevant automated tests, `git diff -
 
 ## Acceptance criteria
 
-- [ ] The normalized `Conversation` model exposes the exact reader-visible title or an explicit absent value without synthesis.
-- [ ] Active reader-visible citations are represented as structured canonical data on the relevant visible message.
-- [ ] Each citation preserves a valid zero-based, half-open UTF-8 byte anchor, exact marker substring and exact absolute destination URL.
-- [ ] Reader-visible optional source title, attribution or domain, and supporting snippet are preserved only when supplied.
-- [ ] Exact source message text remains unchanged, including inline citation markers.
-- [ ] Source-native offsets are converted and verified before canonical UTF-8 byte offsets are exposed.
-- [ ] Marker and anchor mismatches fail visibly.
-- [ ] Active citations missing mandatory canonical fields fail visibly.
-- [ ] Repeated identical markers remain distinguishable by anchor.
-- [ ] Marker-shaped text without an active reader-visible structured reference remains ordinary text.
-- [ ] Non-canonical citation internals are excluded from the normalized canonical model.
-- [ ] Existing supported text and image behavior remains intact.
-- [ ] Unsupported visible content is not silently discarded.
-- [ ] Representative automated tests, including the existing parser tests, pass.
-- [ ] The complete intended implementation and authority diff is reviewed and remains within this Work.
-- [ ] Serialization, hashing, asset handling, bundle publication, CLI, packaging, release and consumer-integration scope is not introduced.
+- [x] The normalized `Conversation` model exposes the exact reader-visible title or an explicit absent value without synthesis.
+- [x] Active reader-visible citations are represented as structured canonical data on the relevant visible message.
+- [x] Each citation preserves a valid zero-based, half-open UTF-8 byte anchor, exact marker substring and exact absolute destination URL.
+- [x] Reader-visible optional source title, attribution or domain, and supporting snippet are preserved only when supplied.
+- [x] Exact source message text remains unchanged, including inline citation markers.
+- [x] Source-native offsets are converted and verified before canonical UTF-8 byte offsets are exposed.
+- [x] Marker and anchor mismatches fail visibly.
+- [x] Active citations missing mandatory canonical fields fail visibly.
+- [x] Repeated identical markers remain distinguishable by anchor.
+- [x] Marker-shaped text without an active reader-visible structured reference remains ordinary text.
+- [x] Non-canonical citation internals are excluded from the normalized canonical model.
+- [x] Existing supported text and image behavior remains intact.
+- [x] Unsupported visible content is not silently discarded.
+- [x] Representative automated tests, including the existing parser tests, pass.
+- [x] The complete intended implementation and authority diff is reviewed and remains within this Work.
+- [x] Serialization, hashing, asset handling, bundle publication, CLI, packaging, release and consumer-integration scope is not introduced.
+
+## Implementation evidence
+
+The reviewed CHAT-3 implementation is committed as `60ed9cbb00cbc5eb46877c089efa3698cafc924c`.
+
+The implementation changed only the bounded CHAT-3 product surface:
+
+- `chatmd.py`
+- `test_chatmd.py`
+- `evidence/CHAT-3/findings.md`
+
+It preserves exact nullable conversation titles and active canonical citations while retaining the existing supported text and image behavior.
+
+The finalized execution evidence is retained under `evidence/runs/go-20260919T000743.785995000Z-f8209c4975d7e80f/` and was committed as `a82a8842c9c94886ab93fe67baa1e9b0047d31eb`.
+
+## Verification
+
+The reviewed implementation passed:
+
+- `python3 -m unittest -v`: 22 tests passed, 0 failures, 0 errors.
+- `git diff --check`.
+- Recorded local-native verification with exit code 0.
+- Complete implementation diff review.
+- Frozen CHAT-3 and CHAT-D1 authority checks before implementation reconciliation.
+- Git custody verification with implementation and retained execution evidence pushed to `origin/main`.
+
+The canonical citation mapping remains intentionally limited to the currently evidenced reader-visible `grouped_webpages` structure. Unsupported anchored structured-reference formats fail visibly rather than being guessed or silently discarded.
+
+## Human acceptance
+
+Marwan explicitly accepted CHAT-3 after implementation review, verification, execution finalization, evidence retention, and remote Git custody on 2026-09-19.
 
 ## Completion boundary
 
@@ -126,8 +157,8 @@ Completion does not require serialization, identity computation, hashing, Markdo
 
 - ID: `CHAT-3`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
