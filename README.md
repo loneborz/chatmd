@@ -19,15 +19,21 @@ currently go to:
 ~/My vault/Sources/ChatMD/YYYY/MM/
 ```
 
-That capture root is machine-specific. ChatMD is not yet a portable packaged
-CLI.
+That capture root is machine-specific. After one local install, ChatMD is invoked
+as `chatmd`.
 
 ## Quick start
 
-From a checkout of this repository:
+From a checkout of this repository, install the local `chatmd` command once:
 
 ```sh
-python3 chatmd.py https://chatgpt.com/share/<public-share-id>
+uv tool install .
+```
+
+Then, from any directory:
+
+```sh
+chatmd https://chatgpt.com/share/<public-share-id>
 ```
 
 On success, after the file is written, ChatMD prints a result in this form:
@@ -46,14 +52,15 @@ This shared link still exists.
 Revoke it in ChatGPT > Settings > Data Controls > Shared Links.
 ```
 
-There is no install command. Run `chatmd.py` from the repository with Python 3.
+`chatmd --help` behaves as a normal CLI command. Shell quotes are not required
+around the share URL unless the URL itself needs quoting.
 
 This repository currently uses a machine-specific local capture root under
 `~/My vault/Sources/ChatMD`. The `~` form is README notation for privacy, not
 runtime home-directory expansion or a configuration setting. On another
-machine, change the capture root in `chatmd.py` before using the command
-unchanged. ChatMD works end-to-end today, but it is not yet portable or
-packaged.
+machine, change the capture root in `chatmd.py` and reinstall before using the
+command unchanged. The local `chatmd` command does not make that capture root
+portable.
 
 ## Capture guarantees
 
@@ -184,7 +191,7 @@ ChatMD does not yet provide:
 
 - image or file asset downloading
 - portable capture-root configuration
-- package installation, distribution, or release automation
+- public package publishing, Homebrew distribution, or release automation
 - LLM summarization, rewriting, or knowledge extraction
 - tagging, embeddings, RAG, or automatic promotion into a knowledge base
 - automatic shared-link revocation

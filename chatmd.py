@@ -8,7 +8,7 @@ import tempfile
 import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from email.message import Message as Headers
 from html.parser import HTMLParser
 from itertools import pairwise
@@ -597,7 +597,7 @@ def _has_meaningful_content(conversation: Conversation) -> bool:
 
 
 def _capture_date() -> date:
-    return datetime.now(timezone.utc).astimezone().date()
+    return datetime.now(UTC).astimezone().date()
 
 
 def _capture_directory(capture_root: Path | None = None) -> Path:

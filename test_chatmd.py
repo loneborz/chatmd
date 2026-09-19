@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -9,6 +10,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import chatmd
+
+REPO_ROOT = Path(__file__).resolve().parent
 
 CAPTURE_DATE = date(2026, 9, 19)
 SOURCE_URL = "https://chatgpt.com/share/example"
@@ -877,6 +880,101 @@ class WorkflowTests(unittest.TestCase):
                 chatmd.main(arguments)
             self.assertEqual(error.exception.code, 2)
             assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
+
+    def test_help_is_a_normal_cli_command(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            chatmd.main(["--help"])
+        self.assertEqual(caught.exception.code, 0)
+        help_text = stdout.getvalue()
+        self.assertIn("usage: chatmd", help_text)
+        self.assertIn("one public ChatGPT share URL", help_text)
+        self.assertNotIn("chatmd.py", help_text)
+        self.assertEqual(stderr.getvalue(), "")
+        assert_no_successful_capture_result(self, help_text, stderr.getvalue())
+
+
+class EntrypointTests(unittest.TestCase):
+    def test_installed_chatmd_runs_from_outside_the_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            venv = root / "venv"
+            outside = root / "outside"
+            outside.mkdir()
+            subprocess.run(
+                ["uv", "venv", str(venv)],
+                check=True,
+                cwd=outside,
+                capture_output=True,
+                text=True,
+            )
+            python = venv / "bin" / "python"
+            subprocess.run(
+                ["uv", "pip", "install", "--python", str(python), str(REPO_ROOT)],
+                check=True,
+                cwd=outside,
+                capture_output=True,
+                text=True,
+            )
+            show = subprocess.run(
+                ["uv", "pip", "show", "--python", str(python), "chatmd"],
+                check=True,
+                cwd=outside,
+                capture_output=True,
+                text=True,
+            )
+            module = subprocess.run(
+                [
+                    str(python),
+                    "-c",
+                    "import chatmd; from pathlib import Path; print(Path(chatmd.__file__).resolve())",
+                ],
+                check=True,
+                cwd=outside,
+                capture_output=True,
+                text=True,
+            )
+            module_path = Path(module.stdout.strip()).resolve()
+            self.assertNotIn("Editable project location", show.stdout)
+            self.assertTrue(
+                str(module_path).startswith(str((venv / "lib").resolve())),
+                module_path,
+            )
+            self.assertFalse(str(module_path).startswith(str(REPO_ROOT)))
+            chatmd_bin = venv / "bin" / "chatmd"
+            self.assertTrue(chatmd_bin.is_file(), chatmd_bin)
+            help_result = subprocess.run(
+                [str(chatmd_bin), "--help"],
+                cwd=outside,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            missing_result = subprocess.run(
+                [str(chatmd_bin)],
+                cwd=outside,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("usage: chatmd", help_result.stdout)
+            self.assertIn("one public ChatGPT share URL", help_result.stdout)
+            self.assertNotIn("chatmd.py", help_result.stdout)
+            self.assertNotIn(str(REPO_ROOT), help_result.stdout)
+            assert_no_successful_capture_result(
+                self, help_result.stdout, help_result.stderr
+            )
+            self.assertEqual(missing_result.returncode, 2, missing_result.stderr)
+            self.assertIn("usage: chatmd", missing_result.stderr)
+            assert_no_successful_capture_result(
+                self, missing_result.stdout, missing_result.stderr
+            )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatmd"
+version = "0.1.0"
+description = "Capture a public ChatGPT share as source-faithful local Markdown."
+requires-python = ">=3.11"
+
+[project.scripts]
+chatmd = "chatmd:main"

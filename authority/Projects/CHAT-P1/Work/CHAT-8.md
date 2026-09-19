@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Make ChatMD a normal local CLI command",
   "authority": "local-native",
-  "revision": 2,
-  "status": "active",
+  "revision": 3,
+  "status": "done",
   "created_at": "2026-09-19T16:14:44Z",
-  "updated_at": "2026-09-19T16:21:55Z",
+  "updated_at": "2026-09-19T16:39:30Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -137,26 +137,26 @@ cookies, or signed URLs in tracked evidence.
 
 ## Acceptance criteria
 
-- [ ] After the documented local install command, `chatmd` is a real
+- [x] After the documented local install command, `chatmd` is a real
       executable available from a normal shell.
-- [ ] `chatmd https://chatgpt.com/share/...` is the documented normal
+- [x] `chatmd https://chatgpt.com/share/...` is the documented normal
       invocation and does not require manually running `python3 chatmd.py`.
-- [ ] `chatmd` can be invoked from a directory outside the ChatMD
+- [x] `chatmd` can be invoked from a directory outside the ChatMD
       repository.
-- [ ] `chatmd --help` behaves as a normal CLI command.
-- [ ] README Quick start matches the accepted `chatmd` invocation and states
+- [x] `chatmd --help` behaves as a normal CLI command.
+- [x] README Quick start matches the accepted `chatmd` invocation and states
       the exact install command.
-- [ ] Shell quotes are not required in documented examples unless the URL
+- [x] Shell quotes are not required in documented examples unless the URL
       itself needs quoting.
-- [ ] The existing capture implementation remains the underlying behavior.
-- [ ] The CHAT-7 post-capture security result is unchanged.
-- [ ] Parsing, serialization, collision, capture-root, and CHAT-D1 bundle
+- [x] The existing capture implementation remains the underlying behavior.
+- [x] The CHAT-7 post-capture security result is unchanged.
+- [x] Parsing, serialization, collision, capture-root, and CHAT-D1 bundle
       semantics are unchanged.
-- [ ] Product source does not hardcode this machine's repository path.
-- [ ] Focused tests, the complete test suite, `npx --yes pyright`,
+- [x] Product source does not hardcode this machine's repository path.
+- [x] Focused tests, the complete test suite, `npx --yes pyright`,
       `uvx ruff check .`, and `git diff --check` pass, with failures and
       limitations reported honestly.
-- [ ] A human accepts the resulting install and invocation behavior against
+- [x] A human accepts the resulting install and invocation behavior against
       this Work contract.
 
 ## Completion boundary
@@ -169,13 +169,103 @@ accepts the behavior.
 Do not mark this Work done, check human-accepted criteria, reconcile
 authority, commit the implementation, or push unless a later human decision
 explicitly authorizes that action.
+
+## Implementation evidence
+
+The accepted product implementation is the tracked diff on authority baseline
+`402bb91cd80af0d16ac21ae10d245203bdbf1cc7`. It changes exactly:
+
+- `.gitignore`;
+- `README.md`;
+- `chatmd.py`;
+- `pyproject.toml`;
+- `test_chatmd.py`.
+
+A minimal PEP 621 `pyproject.toml` installs ChatMD as a one-module project and
+exposes the console-script entrypoint `chatmd = "chatmd:main"`. The accepted
+local setup command is the non-editable install:
+
+```sh
+uv tool install .
+```
+
+After that install, `chatmd <share-url>` is the normal invocation from any
+directory, including outside the repository. `chatmd --help` behaves as a
+normal CLI command. The installed module loads from the uv tool environment
+and not from the ChatMD repository checkout. Product source does not hardcode
+this machine's repository path.
+
+`chatmd.py` keeps the existing capture implementation, including `main()` and
+the CHAT-7 post-capture security result. The only `chatmd.py` source change is
+a behavior-preserving `timezone.utc` to `datetime.UTC` alias required after
+declaring `requires-python = ">=3.11"`. README Quick start documents
+`uv tool install .` and unquoted `chatmd https://chatgpt.com/share/<public-share-id>`.
+
+No browser extension, macOS Shortcut, menu bar UI, Homebrew distribution,
+public package publishing, automatic share revocation, private capture, or
+CHAT-D1 bundle change was introduced. Parsing, serialization, collision,
+capture-root, and CHAT-D1 bundle semantics were not changed.
+
+## Verification
+
+Accepted LWA execution is replacement run
+`go-20260919T162630.723585000Z-b1b9bf601d57588d`, frozen against CHAT-8
+revision 2. The run finalized with disposition `completed` by executor
+`cursor-grok-4.6-extra-high`. Starting and resulting HEAD before the
+completion commit remained `402bb91cd80af0d16ac21ae10d245203bdbf1cc7`.
+
+The superseded revision-1 run
+`go-20260919T161540.026473000Z-8ca89802aa6e0366` is historical evidence of the
+rejected editable install model. It is not evidence for this accepted result.
+
+All eight recorded verification attempts exited 0:
+
+- `python3 -m unittest -v` - exit 0 at `2026-09-19T16:26:58Z` (44 tests,
+  including the CHAT-7 post-capture security result);
+- `npx --yes pyright` - exit 0 at `2026-09-19T16:27:01Z`;
+- `uvx ruff check .` - exit 0 at `2026-09-19T16:27:01Z`;
+- `git diff --check` - exit 0 at `2026-09-19T16:27:01Z`;
+- `uv tool install --reinstall .` - exit 0 at `2026-09-19T16:27:02Z`;
+- `cd /tmp && command -v chatmd && chatmd --help` - exit 0 at
+  `2026-09-19T16:27:02Z`;
+- `chatmd not-a-url` from `/tmp` reached the normal CLI validator with exit 2
+  and `expected an absolute HTTP(S) share URL` - recorded wrapper exit 0 at
+  `2026-09-19T16:27:02Z`;
+- from `/tmp`, the loaded module was under
+  `~/.local/share/uv/tools/chatmd/` and not the repository checkout, with no
+  `Editable project location` - exit 0 at `2026-09-19T16:27:04Z`.
+
+No retained run bundle was added because CHAT-8 does not require durable
+retained evidence.
+
+## Human acceptance
+
+Accepted at `2026-09-19T16:39:30Z` as complete for the CHAT-8 revision 2
+boundary.
+
+The human operator explicitly granted acceptance of CHAT-8 revision 2 and
+authorized end-to-end finalization. The accepted result is one local setup
+command `uv tool install .`, normal usage `chatmd <share-url>`,
+`chatmd --help` as a normal CLI, a non-editable installed tool that loads from
+the uv tool environment rather than the repository checkout, and unchanged
+ChatMD capture behavior including the CHAT-7 post-capture security output.
+
+## Disposition
+
+`CHAT-8` is completed.
+
+ChatMD is invocable as a normal local `chatmd` command after one non-editable
+`uv tool install .` step. Capture behavior, including CHAT-7 post-capture
+security output, remains intact. Browser extensions, Shortcuts, Homebrew
+distribution, public publishing, automatic revocation, private capture, and
+CHAT-D1 bundle work remain outside this Work.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-8`
 - Kind: `issue`
-- Status: `active`
-- Revision: `2`
+- Status: `done`
+- Revision: `3`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
