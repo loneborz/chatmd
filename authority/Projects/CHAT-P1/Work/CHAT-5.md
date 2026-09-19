@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Make local ChatMD capture reliable",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-19T14:17:46Z",
-  "updated_at": "2026-09-19T14:17:46Z",
+  "updated_at": "2026-09-19T15:19:54Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -119,28 +119,28 @@ body, share identifier, credential, cookie or signed URL in tracked evidence.
 
 ## Acceptance criteria
 
-- [ ] One public shared ChatGPT URL creates one durable Markdown source file
+- [x] One public shared ChatGPT URL creates one durable Markdown source file
       under `/Users/marwan/My vault/Sources/ChatMD/YYYY/MM/`.
-- [ ] The year and month directories are derived from the local capture date
+- [x] The year and month directories are derived from the local capture date
       and are created when missing.
-- [ ] The final filename remains filesystem-safe and preserves the established
+- [x] The final filename remains filesystem-safe and preserves the established
       title and slug behavior where sound.
-- [ ] A collision never overwrites the existing file and produces a
+- [x] A collision never overwrites the existing file and produces a
       deterministic new filename while reporting the actual path.
-- [ ] Empty, whitespace-only, shell-only and other contentless exports are
+- [x] Empty, whitespace-only, shell-only and other contentless exports are
       rejected without a successful-looking final file.
-- [ ] Fetch, parse, conversion, validation and filesystem failures return a
+- [x] Fetch, parse, conversion, validation and filesystem failures return a
       non-zero result, emit an actionable error and do not publish a partial
       final capture.
-- [ ] The success message is emitted only after persistence and contains the
+- [x] The success message is emitted only after persistence and contains the
       exact absolute final path.
-- [ ] The exported Markdown remains source-faithful and does not add
+- [x] The exported Markdown remains source-faithful and does not add
       interpretation, rewriting, knowledge promotion or consumer integration.
-- [ ] The existing one-URL CLI model and current ChatMD behavior remain
+- [x] The existing one-URL CLI model and current ChatMD behavior remain
       working.
-- [ ] The focused tests, complete test suite, applicable lint/type checks and
+- [x] The focused tests, complete test suite, applicable lint/type checks and
       `git diff --check` pass, with failures and limitations reported honestly.
-- [ ] One real end-to-end capture is performed when safely possible; the
+- [x] One real end-to-end capture is performed when safely possible; the
       resulting file is inspected for non-empty valid Markdown and expected
       conversation content without treating file existence as proof of
       completeness.
@@ -160,13 +160,80 @@ existence, test success and Git state do not substitute for that decision.
 Do not mark this Work done, check acceptance criteria as human-accepted,
 reconcile authority, commit, push, merge or deploy as part of this Work unless
 the required later human decision explicitly authorizes that action.
+
+## Implementation evidence
+
+The accepted product implementation is committed as:
+
+`fb4cf19150140ac445dcb634bc071b7003557aa0`
+
+It changes exactly:
+
+- `chatmd.py`;
+- `test_chatmd.py`.
+
+The implementation reuses the existing parser, normalized conversation model,
+serializer, CLI, and atomic temp-file plus `os.link` publication. Successful
+captures are stored under `/Users/marwan/My vault/Sources/ChatMD/YYYY/MM/`
+using the local capture date, create missing year and month directories,
+reject contentless exports, preserve existing files on collision with a
+deterministic `name-2.md` suffix, and print `Saved: <absolute-path>` only
+after persistence. No generalized storage configuration, knowledge
+processing, or Markdown redesign was added.
+
+## Verification
+
+Recorded LWA execution for run
+`go-20260919T144213.524970000Z-924eae123c72fbb8` finalized with disposition
+`completed`. The quality gate results were:
+
+- `python3 -m unittest -v test_chatmd.WorkflowTests` - passed;
+- `python3 -m unittest -v` - 41 tests passed;
+- `npx --yes pyright` - passed;
+- `uvx ruff check .` - first attempt failed with `DTZ011` on naive
+  `date.today()`; after switching the capture date to a timezone-aware local
+  date, the same command passed;
+- `python3 -m unittest -v` and `npx --yes pyright` were recorded again after
+  that fix and passed;
+- `git diff --check` - passed;
+- `local-native validate` of the ChatMD authority root - passed.
+
+Automated filesystem tests used temporary capture roots and did not write
+fixtures into `/Users/marwan/My vault/Sources/ChatMD`.
+
+The accepted live capture created:
+
+`/Users/marwan/My vault/Sources/ChatMD/2026/09/Betrouwbare lokale capture-tool.md`
+
+The human opened that file and confirmed a complete, source-faithful capture
+for the current exporter contract. No public share URL or conversation body
+is retained in tracked authority, tests, or execution evidence.
+
+## Human acceptance
+
+Accepted at `2026-09-19T15:19:54Z` as complete for the CHAT-5 boundary.
+
+The implementation, recorded quality gate, and live vault capture are
+accepted. Existing unresolved-image placeholder behavior
+`[Image in original conversation]` is accepted for this Work and remains
+outside CHAT-5 scope.
+
+## Disposition
+
+`CHAT-5` is completed.
+
+Reliable local capture to the authorized vault `YYYY/MM` destination, collision
+preservation, contentless-export rejection, exact `Saved:` path reporting, and
+source-faithful one-URL CLI behavior satisfy the completion boundary.
+Deployment, packaging, distribution, release automation, image downloading,
+and the CHAT-D1 portable bundle contract remain outside this Work.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-5`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
