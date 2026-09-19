@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Ship the first complete end-user chatmd workflow",
   "authority": "local-native",
-  "revision": 1,
+  "revision": 2,
   "status": "active",
   "created_at": "2026-09-19T01:57:21Z",
-  "updated_at": "2026-09-19T01:57:21Z",
+  "updated_at": "2026-09-19T12:15:38Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -37,6 +37,14 @@ Desktop.
 The first output is a standalone Markdown export for direct human use. It is
 not the portable bundle directory contract from CHAT-D1 and does not introduce
 manifest creation, asset publication, or consumer integration.
+
+Revision 2 extends this first workflow only for the currently evidenced public
+share constructs needed to preserve the reader-visible conversation boundary:
+non-reader-visible `hidden` annotations are excluded, UI-only `followup_a`
+control spans are excluded, and visible file attachments are represented as
+structural file parts with deterministic unresolved-file Markdown output.
+This remains a narrow source-format compatibility extension and does not
+change the CHAT-D1 portable bundle contract.
 
 The canonical first-workflow Markdown shape is:
 
@@ -74,6 +82,11 @@ production parsing boundary and normalized conversation model. CHAT-3 provides
 the current title, citation, and preservation implementation that the
 serializer and CLI must consume without bypassing or duplicating.
 
+For the currently evidenced format, this Work may extend that existing
+normalized model narrowly with a `FilePart` and a range-aware projection for
+evidenced `followup_a` UI-control spans. This does not add generic attachment
+semantics or change the CHAT-D1 bundle contract.
+
 The repository implementation, its tests, and the observable command result
 are the technical source of truth for this Work after implementation.
 
@@ -88,8 +101,20 @@ are the technical source of truth for this Work after implementation.
   redirect resolution, or parameter rewriting.
 - Emit one `**User**` or `**ChatGPT**` heading for every visible message and
   preserve every message in normalized conversation order.
-- Serialize text parts without trimming, paraphrasing, Markdown
-  normalization, citation expansion, or other content rewriting.
+- Serialize ordinary text parts without trimming, paraphrasing, Markdown
+  normalization, citation expansion, or other content rewriting. Preserve
+  ordinary source text exactly outside the explicitly evidenced
+  non-reader-visible and UI-control ranges defined below.
+- Exclude an evidenced `hidden` annotation from normalized citation metadata
+  without removing or changing its source text.
+- Project each evidenced `followup_a` UI-control span out of exported
+  conversation content by its exact anchored range. Do not preserve its
+  suggestion label, control metadata, or other UI-only follow-up surface as
+  ordinary conversation Markdown.
+- Represent each visible unresolved file attachment with a dedicated
+  structural `FilePart` containing the exact source filename. Serialize it at
+  its original part position as `[File: <exact source filename>]`. Do not
+  download file contents or synthesize a destination URL.
 - Represent an unresolved `ImagePart` at its exact part position as the
   literal text `[Image in original conversation]`. Do not fetch, save, resize,
   or transform image assets.
@@ -126,6 +151,12 @@ Do not implement:
 - a second parser, a second normalized conversation model, or a consumer-
   specific output format;
 - automatic overwrite, automatic replacement, or silent collision renaming.
+- generic attachment, document, file-content, cloud-document, or arbitrary
+  future annotation support;
+- preserving `followup_a` labels, controls, or other UI-only suggestion
+  surfaces as ordinary conversation content;
+- changing the CHAT-D1 portable bundle contract through this standalone
+  Markdown projection;
 
 ## Evidence requirements
 
@@ -143,6 +174,16 @@ cover:
 - preservation of existing Markdown, code fences, tables, links, lists,
   citations, and semantically relevant whitespace in text parts;
 - image placeholders at the exact order position among text and image parts;
+- exclusion of evidenced `hidden` annotations without changing exact source
+  message text;
+- exact range-aware exclusion of evidenced `followup_a` UI-control spans while
+  preserving all ordinary source text outside those ranges;
+- exact source filename preservation for visible file attachments and
+  deterministic `[File: <exact source filename>]` output at the original part
+  position without file downloading or URL synthesis;
+- current live-format structural cases are covered by privacy-safe synthetic
+  fixtures for `hidden`, `file`, and `followup_a`; no real share URL or body is
+  retained in tracked fixtures or evidence;
 - stable byte-for-byte serialization for the same normalized input;
 - deterministic safe filename derivation, including path separators, control
   characters, whitespace, dots, and an empty result;
@@ -177,9 +218,23 @@ or downloaded asset in tests or evidence.
 - [ ] The source line contains the exact original URL supplied by the user.
 - [ ] Every visible message is represented exactly once, in normalized
       conversation order, with the correct `User` or `ChatGPT` heading.
-- [ ] Message text is preserved exactly as represented by the normalized
-      parser model, including Markdown, code blocks, tables, links, lists,
-      citations, and semantically relevant whitespace.
+- [ ] Ordinary message text is preserved exactly as represented by the
+      normalized parser model outside the explicitly evidenced `followup_a`
+      UI-control ranges, including Markdown, code blocks, tables, links,
+      lists, citations, and semantically relevant whitespace.
+- [ ] Evidenced `hidden` annotations are excluded from normalized citation
+      metadata while their source text remains untouched.
+- [ ] Evidenced `followup_a` UI-control spans are excluded from exported
+      conversation content by exact anchored range, without preserving their
+      labels or control metadata as ordinary Markdown.
+- [ ] A visible unresolved file attachment is represented as a structural
+      `FilePart` with its exact source filename and serialized at its original
+      position as `[File: <exact source filename>]`.
+- [ ] File contents, cloud URLs, and generic attachment semantics are not
+      downloaded, synthesized, or introduced.
+- [ ] Privacy-safe synthetic cases cover the current `hidden`, `file`, and
+      `followup_a` shapes without storing a real share URL or conversation
+      body in tracked fixtures or evidence.
 - [ ] Unresolved images are represented exactly at their conversation part
       position as `[Image in original conversation]`, with no image download or
       asset transformation.
@@ -200,15 +255,17 @@ or downloaded asset in tests or evidence.
 - [ ] No image downloading, clipboard or stdout mode, stdin, multiple-URL
       processing, GUI or native macOS surface, browser extension,
       packaging/distribution/release automation, bundle publication, or LLM
-      transformation is introduced.
+      transformation is introduced. Unknown anchored source constructs and
+      unsupported visible constructs continue to fail visibly.
 
 ## Completion boundary
 
 CHAT-4 is complete when a user can run the one-URL `chatmd` command against a
-supported public ChatGPT share and observe one deterministic, clean Markdown
-file on the Desktop that satisfies the title, source, ordering, preservation,
-image-placeholder, filename, and no-overwrite rules in this Work, with the
-requested quality gate passing.
+supported public ChatGPT share in the currently evidenced format and observe
+one deterministic, clean Markdown file on the Desktop that satisfies the
+title, source, ordering, ordinary-content preservation, hidden-annotation,
+follow-up-control, visible-file, image-placeholder, filename, and no-overwrite
+rules in this Work, with the requested quality gate passing.
 
 The portable CHAT-D1 bundle contract, image asset handling, package and
 distribution mechanics, release automation, native or GUI surfaces, browser
@@ -220,7 +277,7 @@ transformation remain outside this completion boundary.
 - ID: `CHAT-4`
 - Kind: `issue`
 - Status: `active`
-- Revision: `1`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
