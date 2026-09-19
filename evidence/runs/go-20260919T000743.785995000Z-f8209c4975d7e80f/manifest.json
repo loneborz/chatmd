@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "run_id": "go-20260919T000743.785995000Z-f8209c4975d7e80f",
+  "retained_at": "2026-09-19T00:25:25.465158Z",
+  "source_run_directory": "/Users/marwan/Developer/projects/chatmd/.codex/runs/go-20260919T000743.785995000Z-f8209c4975d7e80f",
+  "work_id": "CHAT-3",
+  "work_title": "Extend canonical conversation model with title and citations",
+  "work_source_path": "Projects/CHAT-P1/Work/CHAT-3.md",
+  "frozen_work_revision": 1,
+  "frozen_authority_sha256": "8aae080990268f84533ccb17c68c0351e045e63e673fdd0b86ac98b40d6a0f60",
+  "retention_decides_acceptance": false,
+  "human_acceptance_location": "Work authority CHAT-3 at Projects/CHAT-P1/Work/CHAT-3.md",
+  "files": [
+    {
+      "name": "run.json",
+      "role": "frozen execution authority and preparation evidence",
+      "bytes": 19922,
+      "sha256": "fb3f62c7ca0fe249f4f208990afaba50d79d06c1c9cfccd550e7664601feff13"
+    },
+    {
+      "name": "prepared.commit",
+      "role": "authoritative prepared boundary",
+      "bytes": 9,
+      "sha256": "cb064c1339ffa3d7777bcb0459de3dceddb9146156dde58065a4ac826b029aa7"
+    },
+    {
+      "name": "execution.json",
+      "role": "finalized execution evidence",
+      "bytes": 2006,
+      "sha256": "6bc3854c06dbe73cbeb104dd8c346eec0fb073f4560a42459e4a522fa81dd319"
+    }
+  ],
+  "artifacts": [],
+  "not_retained": [
+    {
+      "name": "authority.md",
+      "reason": "duplicate of frozen_authority_snapshot already retained in run.json"
+    },
+    {
+      "name": "run.md",
+      "reason": "generated human-readable projection of run.json"
+    }
+  ]
+}
