@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Ship the first complete end-user chatmd workflow",
   "authority": "local-native",
-  "revision": 2,
-  "status": "active",
+  "revision": 3,
+  "status": "done",
   "created_at": "2026-09-19T01:57:21Z",
-  "updated_at": "2026-09-19T12:15:38Z",
+  "updated_at": "2026-09-19T13:16:15Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -208,51 +208,51 @@ or downloaded asset in tests or evidence.
 
 ## Acceptance criteria
 
-- [ ] `chatmd <public-chatgpt-share-url>` accepts exactly one URL and creates
+- [x] `chatmd <public-chatgpt-share-url>` accepts exactly one URL and creates
       one Markdown file on the user's Desktop.
-- [ ] A title-bearing conversation produces the exact conversation-first
+- [x] A title-bearing conversation produces the exact conversation-first
       Markdown structure defined by this Work, with a deterministic trailing
       newline and no unrelated sections.
-- [ ] An absent normalized title uses `conversation` only for the document
+- [x] An absent normalized title uses `conversation` only for the document
       heading and default filename; the parser's title remains absent.
-- [ ] The source line contains the exact original URL supplied by the user.
-- [ ] Every visible message is represented exactly once, in normalized
+- [x] The source line contains the exact original URL supplied by the user.
+- [x] Every visible message is represented exactly once, in normalized
       conversation order, with the correct `User` or `ChatGPT` heading.
-- [ ] Ordinary message text is preserved exactly as represented by the
+- [x] Ordinary message text is preserved exactly as represented by the
       normalized parser model outside the explicitly evidenced `followup_a`
       UI-control ranges, including Markdown, code blocks, tables, links,
       lists, citations, and semantically relevant whitespace.
-- [ ] Evidenced `hidden` annotations are excluded from normalized citation
+- [x] Evidenced `hidden` annotations are excluded from normalized citation
       metadata while their source text remains untouched.
-- [ ] Evidenced `followup_a` UI-control spans are excluded from exported
+- [x] Evidenced `followup_a` UI-control spans are excluded from exported
       conversation content by exact anchored range, without preserving their
       labels or control metadata as ordinary Markdown.
-- [ ] A visible unresolved file attachment is represented as a structural
+- [x] A visible unresolved file attachment is represented as a structural
       `FilePart` with its exact source filename and serialized at its original
       position as `[File: <exact source filename>]`.
-- [ ] File contents, cloud URLs, and generic attachment semantics are not
+- [x] File contents, cloud URLs, and generic attachment semantics are not
       downloaded, synthesized, or introduced.
-- [ ] Privacy-safe synthetic cases cover the current `hidden`, `file`, and
+- [x] Privacy-safe synthetic cases cover the current `hidden`, `file`, and
       `followup_a` shapes without storing a real share URL or conversation
       body in tracked fixtures or evidence.
-- [ ] Unresolved images are represented exactly at their conversation part
+- [x] Unresolved images are represented exactly at their conversation part
       position as `[Image in original conversation]`, with no image download or
       asset transformation.
-- [ ] Repeating the same normalized input and URL produces byte-identical
+- [x] Repeating the same normalized input and URL produces byte-identical
       Markdown content.
-- [ ] The default filename is a deterministic safe `.md` basename derived from
+- [x] The default filename is a deterministic safe `.md` basename derived from
       the title, with the documented fallback and sanitization behavior.
-- [ ] An existing derived path is never silently overwritten or replaced; the
+- [x] An existing derived path is never silently overwritten or replaced; the
       command fails clearly and leaves the existing file unchanged.
-- [ ] Fetch, parse, serialization, or file-creation failure does not publish a
+- [x] Fetch, parse, serialization, or file-creation failure does not publish a
       partial or misleading output file.
-- [ ] Missing, extra, or invalid command-line input fails clearly without
+- [x] Missing, extra, or invalid command-line input fails clearly without
       entering another input or output mode.
-- [ ] `python3 -m unittest -v`, `pyright`, `ruff check .`, and `git diff
+- [x] `python3 -m unittest -v`, `pyright`, `ruff check .`, and `git diff
       --check` pass for the completed implementation.
-- [ ] The complete intended implementation and authority diff is reviewed and
+- [x] The complete intended implementation and authority diff is reviewed and
       remains within this Work.
-- [ ] No image downloading, clipboard or stdout mode, stdin, multiple-URL
+- [x] No image downloading, clipboard or stdout mode, stdin, multiple-URL
       processing, GUI or native macOS surface, browser extension,
       packaging/distribution/release automation, bundle publication, or LLM
       transformation is introduced. Unknown anchored source constructs and
@@ -271,13 +271,64 @@ The portable CHAT-D1 bundle contract, image asset handling, package and
 distribution mechanics, release automation, native or GUI surfaces, browser
 extensions, clipboard and stdout modes, multiple-URL processing, and any LLM
 transformation remain outside this completion boundary.
+
+## Implementation evidence
+
+The accepted product implementation is committed as:
+
+`443cf660c65ccfd912af7935b069bcb918eeb21b`
+
+It changes exactly:
+
+- `chatmd.py`;
+- `test_chatmd.py`;
+- `tools/probe_share.py`.
+
+The implementation reuses the existing parser and normalized conversation
+model, adds the evidenced `FilePart` and range-aware visibility projection,
+serializes deterministic message framing and unresolved placeholders, and
+keeps Desktop output exclusive and collision-safe. No image or file contents
+are downloaded, and no excluded output surface or transformation was added.
+
+## Verification
+
+The final quality gate passed:
+
+- `python3 -m unittest -v` - 34 tests passed;
+- `npx --yes pyright` - 0 errors, 0 warnings, 0 informations;
+- `uvx ruff check .` - all checks passed;
+- `git diff --check` - passed.
+
+The accepted live public-share export created the Desktop Markdown output and
+was inspected for deterministic separators, preserved message content,
+unresolved file and image placeholders, hidden annotation text, and excluded
+follow-up control labels. No public share URL or conversation body is retained
+in tracked authority, tests, or execution evidence.
+
+## Human acceptance
+
+Accepted at `2026-09-19T13:16:15Z` as complete for the CHAT-4 boundary.
+
+The implementation, final quality gate, and live public-share export are
+accepted. The accepted result is ready for the completed local-native Work
+state.
+
+## Disposition
+
+`CHAT-4` is completed.
+
+The one-URL Markdown export workflow, its evidenced live-format compatibility,
+preservation rules, deterministic framing, Desktop output, and no-overwrite
+behavior satisfy the completion boundary. Deployment, packaging,
+distribution, release automation, and the CHAT-D1 portable bundle contract
+remain outside this Work.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-4`
 - Kind: `issue`
-- Status: `active`
-- Revision: `2`
+- Status: `done`
+- Revision: `3`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 
