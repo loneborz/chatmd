@@ -1,10 +1,12 @@
 # chatmd
 
-ChatMD captures a public ChatGPT share as source-faithful local Markdown.
+ChatMD captures a public ChatGPT share as a deterministic local Markdown Source
+artifact.
 
-Shared conversations are transient web pages. ChatMD writes one durable Markdown
-file from a public share URL without summarizing, paraphrasing, or otherwise
-rewriting the visible conversation.
+Shared conversations are transient web pages. ChatMD writes one Markdown file
+from a public share URL without summarizing, paraphrasing, or otherwise
+rewriting the visible conversation. The portable conversation bundle specified
+in CHAT-D1 is not the current output format.
 
 ## What it does
 
@@ -209,8 +211,8 @@ ChatMD does not yet provide:
 - LLM summarization, rewriting, or knowledge extraction
 - tagging, embeddings, RAG, or automatic promotion into a knowledge base
 - automatic shared-link revocation
-- the portable conversation bundle contract (`manifest.json`, `assets/`,
-  content identity)
+- the portable conversation bundle contract specified in CHAT-D1
+  (`manifest.json`, `assets/`, content identity)
 
 It captures one public share URL at a time. Private conversations and ChatGPT
 authentication are outside the current workflow. Zero-argument clipboard
