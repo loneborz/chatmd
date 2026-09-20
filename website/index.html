@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChatMD - Capture a public ChatGPT share as local Markdown</title>
-<meta name="description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<title>ChatMD - Turn a ChatGPT conversation into local Markdown</title>
+<meta name="description" content="ChatMD is a small local CLI that captures the visible conversation from one public ChatGPT share as deterministic local Markdown you control.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#09090b">
 <link rel="canonical" href="https://chatmd.wavesweb.nl/">
@@ -12,16 +12,16 @@
 <meta property="og:site_name" content="ChatMD">
 <meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://chatmd.wavesweb.nl/">
-<meta property="og:title" content="ChatMD - Capture a public ChatGPT share as local Markdown">
-<meta property="og:description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<meta property="og:title" content="ChatMD - Turn a ChatGPT conversation into local Markdown">
+<meta property="og:description" content="ChatMD is a small local CLI that captures the visible conversation from one public ChatGPT share as deterministic local Markdown you control.">
 <meta property="og:image" content="https://chatmd.wavesweb.nl/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="ChatMD: shared conversations are temporary web pages. ChatMD makes them files.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="ChatMD - Capture a public ChatGPT share as local Markdown">
-<meta name="twitter:description" content="ChatMD is a small local CLI that captures one public ChatGPT share as a deterministic local Markdown file, before that share disappears.">
+<meta name="twitter:title" content="ChatMD - Turn a ChatGPT conversation into local Markdown">
+<meta name="twitter:description" content="ChatMD is a small local CLI that captures the visible conversation from one public ChatGPT share as deterministic local Markdown you control.">
 <meta name="twitter:image" content="https://chatmd.wavesweb.nl/og.png">
 <meta name="twitter:image:alt" content="ChatMD: shared conversations are temporary web pages. ChatMD makes them files.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -42,7 +42,7 @@
       chatmd
     </a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#transience">Transience</a>
+      <a href="#transience">Path</a>
       <a href="#model">Capture model</a>
       <a href="#fidelity">Fidelity</a>
       <a href="#failure">Failure</a>
@@ -64,15 +64,15 @@
     <p class="eyebrow reveal">Local CLI &middot; macOS &middot; Python standard library</p>
 
     <h1 class="display reveal">
-      Shared conversations are<br>
-      temporary web pages.
-      <span class="display-dim">ChatMD makes them files.</span>
+      Turn a ChatGPT chat<br>
+      into local Markdown.
+      <span class="display-dim">You control the file.</span>
     </h1>
 
     <p class="lead reveal">
-      ChatMD captures one public ChatGPT share as a deterministic local Markdown
-      artifact. No summarizing, no paraphrasing, no cleanup. It is a capture
-      boundary, not a knowledge system.
+      Give ChatMD a public ChatGPT share URL and it captures the visible
+      conversation as deterministic local Markdown you control. No summarizing,
+      no paraphrasing, no cleanup.
     </p>
 
     <div class="hero-actions reveal">
@@ -118,36 +118,36 @@
 <section class="band" id="transience">
   <div class="container">
     <div class="section-head reveal">
-      <p class="mono-label index">01 / Why it exists</p>
-      <h2 class="h2">A public share is a page someone else can take down.</h2>
+      <p class="mono-label index">01 / Capture path</p>
+      <h2 class="h2">Capture the conversation. Keep the file.</h2>
       <p class="section-lead">
-        The link works until it does not. Revocation, account changes, and
-        expiry all end the same way: the conversation you cited is gone and the
-        evidence went with it. ChatMD exists to move one share across that line,
-        from a hosted page to a file on your disk, while the link is still live.
+        You have a conversation worth keeping. Create a public ChatGPT share
+        and give ChatMD the URL. It captures the visible conversation as
+        deterministic local Markdown on your disk. Revoke the share when you're
+        done. The file stays with you.
       </p>
     </div>
 
     <ol class="timeline reveal">
       <li>
         <span class="mono-label step">T0</span>
-        <h3>The share is published</h3>
-        <p>A public URL renders the conversation for anyone who holds the link.</p>
+        <h3>Create a public share</h3>
+        <p>From the ChatGPT conversation, create a public share. That URL is the required input.</p>
       </li>
       <li>
         <span class="mono-label step">T1</span>
-        <h3>ChatMD captures it</h3>
-        <p>One HTTP fetch, one deterministic Markdown file, written locally.</p>
+        <h3>ChatMD captures the conversation</h3>
+        <p>From that public share: one HTTP fetch, one deterministic Markdown file, written locally.</p>
       </li>
       <li>
         <span class="mono-label step">T2</span>
-        <h3>The share is revoked</h3>
-        <p>The URL stops resolving. A later capture attempt fails visibly.</p>
+        <h3>The file is local</h3>
+        <p>Deterministic Markdown, written to disk under your control.</p>
       </li>
       <li class="terminal-state">
         <span class="mono-label step">T3</span>
-        <h3>The file remains</h3>
-        <p>Local Markdown and preserved images are unaffected by revocation.</p>
+        <h3>Revoke the share</h3>
+        <p>The public link still exists until you revoke it. The local file is unaffected.</p>
       </li>
     </ol>
   </div>
@@ -438,7 +438,7 @@ Revoke it in ChatGPT &gt; Settings &gt; Data Controls &gt; Shared Links.</code><
   <div class="container footer-inner">
     <div class="footer-brand">
       <a class="wordmark" href="#top"><span class="wordmark-mark" aria-hidden="true"></span>chatmd</a>
-      <p>Capture a public ChatGPT share as a deterministic local Markdown artifact.</p>
+      <p>Turn a ChatGPT conversation into deterministic local Markdown you control.</p>
     </div>
     <div class="footer-meta">
       <p class="mono-label">Source</p>
