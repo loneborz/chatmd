@@ -71,6 +71,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-10|CHAT-10]]: Preserve share-visible images during capture
 - [[Projects/CHAT-P1/Work/CHAT-11|CHAT-11]]: Reframe the ChatMD onepager around local conversation capture
 - [[Projects/CHAT-P1/Work/CHAT-12|CHAT-12]]: Align the GitHub README opening with local conversation capture
+- [[Projects/CHAT-P1/Work/CHAT-13|CHAT-13]]: Make the ChatMD capture root portable across machines
 - [[Projects/CHAT-P1/Work/CHAT-2|CHAT-2]]: Implement deterministic ChatGPT share parsing core
 - [[Projects/CHAT-P1/Work/CHAT-3|CHAT-3]]: Extend canonical conversation model with title and citations
 - [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow

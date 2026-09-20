@@ -17,14 +17,8 @@ data, and writes a deterministic Markdown file into a local vault directory.
 Supported visible user images are saved beside the Markdown file in the version
 available through the public share.
 
-Successful captures currently go to:
-
-```text
-~/My vault/Sources/ChatMD/YYYY/MM/
-```
-
-That capture root is machine-specific. After one local install, ChatMD is invoked
-as `chatmd`.
+Successful captures go under `$CHATMD_CAPTURE_ROOT/YYYY/MM/`. After one local
+install, ChatMD is invoked as `chatmd`.
 
 ## Quick start
 
@@ -32,6 +26,13 @@ From a checkout of this repository, install the local `chatmd` command once:
 
 ```sh
 uv tool install .
+```
+
+Set an absolute capture directory for this machine. ChatMD does not bake a
+destination path into the install:
+
+```sh
+export CHATMD_CAPTURE_ROOT="/path/to/captures"
 ```
 
 Then, from any directory:
@@ -51,13 +52,17 @@ after surrounding whitespace is removed, it is one
 `https://chatgpt.com/share/...` URL. It does not search other clipboard text
 for a link. Explicit `chatmd <share-url>` does not read the clipboard.
 
+If `CHATMD_CAPTURE_ROOT` is missing or not an absolute path, ChatMD fails
+before writing a capture. Changing the capture directory later does not require
+editing product source or reinstalling.
+
 On success, after the file is written, ChatMD prints a result in this form:
 
 ```text
 CAPTURE COMPLETE
 
 Saved:
-~/My vault/Sources/ChatMD/YYYY/MM/<conversation>.md
+/path/to/captures/YYYY/MM/<conversation>.md
 
 Shared source:
 https://chatgpt.com/share/<public-share-id>
@@ -70,13 +75,6 @@ Revoke it in ChatGPT > Settings > Data Controls > Shared Links.
 `chatmd --help` behaves as a normal CLI command. Shell quotes are not required
 around the share URL unless the URL itself needs quoting. Clipboard capture is
 macOS-native and requires the `pbpaste` command.
-
-This repository currently uses a machine-specific local capture root under
-`~/My vault/Sources/ChatMD`. The `~` form is README notation for privacy, not
-runtime home-directory expansion or a configuration setting. On another
-machine, change the capture root in `chatmd.py` and reinstall before using the
-command unchanged. The local `chatmd` command does not make that capture root
-portable.
 
 ## Capture guarantees
 
@@ -223,7 +221,6 @@ ChatMD does not yet provide:
 - file attachment downloading
 - original upload bytes when ChatGPT exposes only a sanitized or resized
   share-visible image
-- portable capture-root configuration
 - public package publishing, Homebrew distribution, or release automation
 - LLM summarization, rewriting, or knowledge extraction
 - tagging, embeddings, RAG, or automatic promotion into a knowledge base

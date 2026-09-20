@@ -9,7 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.message import Message as Headers
@@ -24,7 +24,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("
-CAPTURE_ROOT = Path("/Users/marwan/My vault/Sources/ChatMD")
+CAPTURE_ROOT_ENV = "CHATMD_CAPTURE_ROOT"
 USER_AGENT = "Mozilla/5.0 (compatible; ChatMD/0.1)"
 _SEDIMENT_FILE = re.compile(r"^file_[A-Za-z0-9_-]+$")
 _SHARE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -871,10 +871,22 @@ def _capture_date() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
-def _capture_directory(capture_root: Path | None = None) -> Path:
-    root = CAPTURE_ROOT if capture_root is None else capture_root
+def resolve_capture_root(environ: Mapping[str, str] | None = None) -> Path:
+    values = os.environ if environ is None else environ
+    raw = values.get(CAPTURE_ROOT_ENV)
+    if raw is None or not raw.strip():
+        raise ValueError(f"{CAPTURE_ROOT_ENV} is not set")
+    if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+        raise ValueError(f"{CAPTURE_ROOT_ENV} must be an absolute path")
+    root = Path(raw.strip()).expanduser()
+    if not root.is_absolute():
+        raise ValueError(f"{CAPTURE_ROOT_ENV} must be an absolute path")
+    return root
+
+
+def _capture_directory(capture_root: Path) -> Path:
     capture_date = _capture_date()
-    return root / f"{capture_date:%Y}" / f"{capture_date:%m}"
+    return capture_root / f"{capture_date:%Y}" / f"{capture_date:%m}"
 
 
 def _write_bytes_exclusive(data: bytes, destination: Path) -> None:
@@ -901,7 +913,8 @@ def _write_bytes_exclusive(data: bytes, destination: Path) -> None:
 def write_markdown(
     conversation: Conversation,
     source_url: str,
-    capture_root: Path | None = None,
+    *,
+    capture_root: Path,
     images: Sequence[AcquiredImage] = (),
 ) -> Path:
     if not _has_meaningful_content(conversation):
@@ -1052,7 +1065,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Capture a public ChatGPT share as source-faithful local Markdown. "
             "Pass one public HTTP(S) share URL, or omit it to use a copied "
-            "https://chatgpt.com/share/... URL from the macOS clipboard."
+            "https://chatgpt.com/share/... URL from the macOS clipboard. "
+            "Set CHATMD_CAPTURE_ROOT to an absolute capture directory."
         ),
     )
     parser.add_argument(
@@ -1070,10 +1084,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             source_url = arguments.url
         _validate_share_url(source_url)
+        capture_root = resolve_capture_root()
         session = ShareSession()
         conversation = parse_share(source_url, session.fetch_text)
         images = acquire_images(conversation, session, source_url)
-        output = write_markdown(conversation, source_url, images=images)
+        output = write_markdown(
+            conversation,
+            source_url,
+            capture_root=capture_root,
+            images=images,
+        )
         print(_capture_complete_message(output, source_url))
     except (OSError, ParseError, ValueError) as error:
         parser.error(str(error))

@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 import zlib
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import date
 from email.message import Message as Headers
 from pathlib import Path
@@ -106,6 +106,16 @@ def assert_no_successful_capture_result(test: unittest.TestCase, *streams: str) 
     combined = "".join(streams)
     for marker in POST_CAPTURE_SUCCESS_MARKERS:
         test.assertNotIn(marker, combined)
+
+
+@contextmanager
+def capture_root_var(root: Path | None):
+    extra = {} if root is None else {chatmd.CAPTURE_ROOT_ENV: str(root)}
+    with patch.dict(os.environ, extra, clear=False):
+        if root is None:
+            os.environ.pop(chatmd.CAPTURE_ROOT_ENV, None)
+        yield
+
 
 MISSING = object()
 
@@ -771,21 +781,102 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(chatmd.safe_filename(title) + ".md", expected)
 
-    def test_default_capture_root_is_the_authorized_vault_path(self) -> None:
-        self.assertEqual(
-            chatmd.CAPTURE_ROOT,
-            Path("/Users/marwan/My vault/Sources/ChatMD"),
+    def test_product_source_does_not_encode_a_capture_destination(self) -> None:
+        source = Path(chatmd.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("/Users/marwan", source)
+        self.assertNotIn("My vault", source)
+        self.assertNotIn("Sources/ChatMD", source)
+        self.assertFalse(hasattr(chatmd, "CAPTURE_ROOT"))
+
+    def test_capture_root_is_resolved_from_the_process_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            first_root = Path(first)
+            second_root = Path(second)
+            self.assertEqual(
+                chatmd.resolve_capture_root({chatmd.CAPTURE_ROOT_ENV: str(first_root)}),
+                first_root,
+            )
+            self.assertEqual(
+                chatmd.resolve_capture_root({chatmd.CAPTURE_ROOT_ENV: str(second_root)}),
+                second_root,
+            )
+            self.assertNotEqual(first_root, second_root)
+            self.assertEqual(
+                chatmd.resolve_capture_root({chatmd.CAPTURE_ROOT_ENV: "~/captures"}),
+                Path.home() / "captures",
+            )
+
+    def test_unresolvable_capture_root_fails_before_fetch_or_write(self) -> None:
+        cases = (
+            {},
+            {chatmd.CAPTURE_ROOT_ENV: ""},
+            {chatmd.CAPTURE_ROOT_ENV: "   "},
+            {chatmd.CAPTURE_ROOT_ENV: "relative/captures"},
         )
+        for environ in cases:
+            with (
+                self.subTest(environ=environ),
+                self.assertRaisesRegex(ValueError, f"{chatmd.CAPTURE_ROOT_ENV}"),
+            ):
+                chatmd.resolve_capture_root(environ)
+
+        conversation = user_conversation("Title", "visible body")
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            capture_root_var(None),
+            patch("chatmd.parse_share", return_value=conversation) as parse_share,
+            patch("chatmd.write_markdown") as write_markdown,
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            chatmd.main([SOURCE_URL])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn(chatmd.CAPTURE_ROOT_ENV, stderr.getvalue())
+        parse_share.assert_not_called()
+        write_markdown.assert_not_called()
+        self.assertEqual(markdown_files(Path(temporary)), [])
+        assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
+
+    def test_same_command_captures_into_two_runtime_roots(self) -> None:
+        conversation = user_conversation("Title", "visible body")
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            first_root = Path(first)
+            second_root = Path(second)
+            first_out = io.StringIO()
+            second_out = io.StringIO()
+            with patch("chatmd.parse_share", return_value=conversation):
+                with (
+                    capture_root_var(first_root),
+                    patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                    redirect_stdout(first_out),
+                ):
+                    self.assertEqual(chatmd.main([SOURCE_URL]), 0)
+                with (
+                    capture_root_var(second_root),
+                    patch("chatmd._capture_date", return_value=CAPTURE_DATE),
+                    redirect_stdout(second_out),
+                ):
+                    self.assertEqual(chatmd.main([SOURCE_URL]), 0)
+            first_path = (first_root / "2026" / "09" / "Title.md").resolve()
+            second_path = (second_root / "2026" / "09" / "Title.md").resolve()
+            self.assertTrue(first_path.is_file())
+            self.assertTrue(second_path.is_file())
+            self.assertEqual(first_out.getvalue(), capture_complete_text(first_path, SOURCE_URL))
+            self.assertEqual(second_out.getvalue(), capture_complete_text(second_path, SOURCE_URL))
+            self.assertEqual(markdown_files(first_root), [first_path])
+            self.assertEqual(markdown_files(second_root), [second_path])
 
     def test_writer_routes_to_year_month_and_creates_missing_directories(self) -> None:
         conversation = user_conversation("Vault export", "exact source text")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                output = chatmd.write_markdown(conversation, SOURCE_URL)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                output = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root
+                )
 
             expected = (root / "2026" / "09" / "Vault export.md").resolve()
             self.assertEqual(output, expected)
@@ -800,30 +891,30 @@ class WorkflowTests(unittest.TestCase):
         conversation = user_conversation("  ... Project / \\ Notes ...  ", "body")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                output = chatmd.write_markdown(conversation, SOURCE_URL)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                output = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root
+                )
             self.assertEqual(output.name, "Project _ _ Notes.md")
 
     def test_writer_collision_preserves_existing_file_and_uses_suffix(self) -> None:
         conversation = user_conversation("conversation", "first capture")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                first = chatmd.write_markdown(conversation, SOURCE_URL)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                first = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root
+                )
                 original = first.read_text(encoding="utf-8")
                 second = chatmd.write_markdown(
                     user_conversation("conversation", "second capture"),
                     SOURCE_URL,
+                    capture_root=root,
                 )
                 third = chatmd.write_markdown(
                     user_conversation("conversation", "third capture"),
                     SOURCE_URL,
+                    capture_root=root,
                 )
 
             directory = root / "2026" / "09"
@@ -850,11 +941,10 @@ class WorkflowTests(unittest.TestCase):
             for name, conversation in cases.items():
                 with (
                     self.subTest(name=name),
-                    patch("chatmd.CAPTURE_ROOT", root),
                     patch("chatmd._capture_date", return_value=CAPTURE_DATE),
                     self.assertRaisesRegex(chatmd.ParseError, "no meaningful content"),
                 ):
-                    chatmd.write_markdown(conversation, SOURCE_URL)
+                    chatmd.write_markdown(conversation, SOURCE_URL, capture_root=root)
             self.assertEqual(list(root.rglob("*")), [])
 
     def test_writer_keeps_image_or_file_parts_as_meaningful_content(self) -> None:
@@ -872,14 +962,13 @@ class WorkflowTests(unittest.TestCase):
         images = (acquired_image("img2.PNG", "01-img2.PNG", png),)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
                 image_output = chatmd.write_markdown(
-                    image_conversation, SOURCE_URL, images=images
+                    image_conversation, SOURCE_URL, capture_root=root, images=images
                 )
-                file_output = chatmd.write_markdown(file_conversation, SOURCE_URL)
+                file_output = chatmd.write_markdown(
+                    file_conversation, SOURCE_URL, capture_root=root
+                )
 
             asset = image_output.parent / "Image only-images" / "01-img2.PNG"
             self.assertTrue(image_output.is_file())
@@ -907,20 +996,18 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with (
-                patch("chatmd.CAPTURE_ROOT", root),
                 patch("chatmd._capture_date", return_value=CAPTURE_DATE),
                 self.assertRaises(chatmd.ParseError),
             ):
-                chatmd.write_markdown(invalid, SOURCE_URL)
+                chatmd.write_markdown(invalid, SOURCE_URL, capture_root=root)
             self.assertEqual(markdown_files(root), [])
 
             with (
-                patch("chatmd.CAPTURE_ROOT", root),
                 patch("chatmd._capture_date", return_value=CAPTURE_DATE),
                 patch("chatmd.os.link", side_effect=OSError("link failed")),
                 self.assertRaisesRegex(OSError, "link failed"),
             ):
-                chatmd.write_markdown(valid, SOURCE_URL)
+                chatmd.write_markdown(valid, SOURCE_URL, capture_root=root)
             self.assertEqual(markdown_files(root), [])
 
     def test_main_reports_capture_complete_only_after_persistence(self) -> None:
@@ -933,26 +1020,33 @@ class WorkflowTests(unittest.TestCase):
         def write_markdown(
             written: chatmd.Conversation,
             url: str,
-            capture_root: Path | None = None,
+            *,
+            capture_root: Path,
             images: object = (),
         ) -> Path:
             self.assertEqual(written, conversation)
             self.assertEqual(url, source_url)
+            self.assertEqual(capture_root, root)
             self.assertEqual(images, ())
             self.assertEqual(stdout.getvalue(), "")
             write_state["called"] = True
             return saved
 
         with (
+            tempfile.TemporaryDirectory() as temporary,
+            capture_root_var(Path(temporary)),
             patch("chatmd.parse_share", return_value=conversation) as parse_share,
             patch("chatmd.write_markdown", side_effect=write_markdown) as write_markdown_mock,
             patch("chatmd._read_macos_clipboard") as read_clipboard,
             redirect_stdout(stdout),
         ):
+            root = Path(temporary)
             self.assertEqual(chatmd.main([source_url]), 0)
 
         parse_share.assert_called_once_with(source_url, ANY)
-        write_markdown_mock.assert_called_once_with(conversation, source_url, images=())
+        write_markdown_mock.assert_called_once_with(
+            conversation, source_url, capture_root=root, images=()
+        )
         read_clipboard.assert_not_called()
         self.assertTrue(write_state["called"])
         self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
@@ -964,7 +1058,7 @@ class WorkflowTests(unittest.TestCase):
             first_out = io.StringIO()
             second_out = io.StringIO()
             with (
-                patch("chatmd.CAPTURE_ROOT", root),
+                capture_root_var(root),
                 patch("chatmd._capture_date", return_value=CAPTURE_DATE),
                 patch("chatmd.parse_share", return_value=conversation),
             ):
@@ -989,7 +1083,7 @@ class WorkflowTests(unittest.TestCase):
                 stderr = io.StringIO()
                 with (
                     self.subTest(error=error),
-                    patch("chatmd.CAPTURE_ROOT", root),
+                    capture_root_var(root),
                     patch("chatmd.parse_share", side_effect=error),
                     patch("chatmd.write_markdown") as write_markdown,
                     redirect_stdout(stdout),
@@ -1013,6 +1107,8 @@ class WorkflowTests(unittest.TestCase):
             stderr = io.StringIO()
             with (
                 self.subTest(error=error),
+                tempfile.TemporaryDirectory() as temporary,
+                capture_root_var(Path(temporary)),
                 patch("chatmd.parse_share", return_value=conversation),
                 patch("chatmd.write_markdown", side_effect=error) as write_markdown,
                 redirect_stdout(stdout),
@@ -1021,7 +1117,12 @@ class WorkflowTests(unittest.TestCase):
             ):
                 chatmd.main([SOURCE_URL])
             self.assertEqual(caught.exception.code, 2)
-            write_markdown.assert_called_once_with(conversation, SOURCE_URL, images=())
+            write_markdown.assert_called_once_with(
+                conversation,
+                SOURCE_URL,
+                capture_root=Path(temporary),
+                images=(),
+            )
             self.assertIn(str(error), stderr.getvalue())
             self.assertEqual(stdout.getvalue(), "")
             assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
@@ -1057,6 +1158,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("optional public HTTP(S) share URL", help_text)
         self.assertIn("https://chatgpt.com/share/", help_text)
         self.assertIn("macOS clipboard", help_text)
+        self.assertIn("CHATMD_CAPTURE_ROOT", help_text)
         self.assertNotIn("chatmd.py", help_text)
         self.assertEqual(stderr.getvalue(), "")
         assert_no_successful_capture_result(self, help_text, stderr.getvalue())
@@ -1155,11 +1257,10 @@ class ImageAcquisitionTests(unittest.TestCase):
         images = chatmd.acquire_images(conversation, session, SOURCE_URL)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                output = chatmd.write_markdown(conversation, SOURCE_URL, images=images)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                output = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root, images=images
+                )
             markdown = output.read_text(encoding="utf-8")
             asset = output.parent / "Images-images" / "01-img2.PNG"
             self.assertTrue(asset.is_file())
@@ -1184,11 +1285,10 @@ class ImageAcquisitionTests(unittest.TestCase):
         self.assertEqual([image.stored_name for image in images], ["01-img2.PNG", "02-img2.PNG"])
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                output = chatmd.write_markdown(conversation, SOURCE_URL, images=images)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                output = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root, images=images
+                )
             markdown = output.read_text(encoding="utf-8")
             directory = output.parent / "Images-images"
             self.assertEqual(
@@ -1208,12 +1308,12 @@ class ImageAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with (
-                patch("chatmd.CAPTURE_ROOT", root),
                 self.assertRaisesRegex(chatmd.ParseError, "backend resolution failed"),
             ):
                 chatmd.write_markdown(
                     conversation,
                     SOURCE_URL,
+                    capture_root=root,
                     images=chatmd.acquire_images(conversation, session, SOURCE_URL),
                 )
             self.assertEqual(list(root.rglob("*")), [])
@@ -1232,10 +1332,7 @@ class ImageAcquisitionTests(unittest.TestCase):
         conversation = chatmd.parse_share(SOURCE_URL, session.fetch_text)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                self.assertRaisesRegex(chatmd.ParseError, "image download failed"),
-            ):
+            with self.assertRaisesRegex(chatmd.ParseError, "image download failed"):
                 chatmd.acquire_images(conversation, session, SOURCE_URL)
             self.assertEqual(list(root.rglob("*")), [])
 
@@ -1294,22 +1391,20 @@ class ImageAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with (
-                patch("chatmd.CAPTURE_ROOT", root),
                 patch("chatmd._capture_date", return_value=CAPTURE_DATE),
                 self.assertRaisesRegex(chatmd.ParseError, "visible image was not preserved"),
             ):
-                chatmd.write_markdown(conversation, SOURCE_URL)
+                chatmd.write_markdown(conversation, SOURCE_URL, capture_root=root)
             self.assertEqual(list(root.rglob("*")), [])
 
     def test_text_only_capture_does_not_create_image_directory(self) -> None:
         conversation = user_conversation("Vault export", "exact source text")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with (
-                patch("chatmd.CAPTURE_ROOT", root),
-                patch("chatmd._capture_date", return_value=CAPTURE_DATE),
-            ):
-                output = chatmd.write_markdown(conversation, SOURCE_URL)
+            with patch("chatmd._capture_date", return_value=CAPTURE_DATE):
+                output = chatmd.write_markdown(
+                    conversation, SOURCE_URL, capture_root=root
+                )
             self.assertEqual(output.name, "Vault export.md")
             self.assertEqual(
                 output.read_text(encoding="utf-8"),
@@ -1326,7 +1421,7 @@ class ImageAcquisitionTests(unittest.TestCase):
         stderr = io.StringIO()
         with (
             tempfile.TemporaryDirectory() as temporary,
-            patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+            capture_root_var(Path(temporary)),
             patch("chatmd.parse_share", return_value=conversation),
             patch(
                 "chatmd.acquire_images",
@@ -1351,6 +1446,8 @@ class ClipboardTests(unittest.TestCase):
         saved = Path("/tmp/chatmd-isolated/2026/09/Title.md")
 
         with (
+            tempfile.TemporaryDirectory() as temporary,
+            capture_root_var(Path(temporary)),
             patch("chatmd._read_macos_clipboard", return_value=f"\n  {source_url}  \n"),
             patch("chatmd.parse_share", return_value=conversation) as parse_share,
             patch("chatmd.write_markdown", return_value=saved) as write_markdown,
@@ -1359,13 +1456,17 @@ class ClipboardTests(unittest.TestCase):
             self.assertEqual(chatmd.main([]), 0)
 
         parse_share.assert_called_once_with(source_url, ANY)
-        write_markdown.assert_called_once_with(conversation, source_url, images=())
+        write_markdown.assert_called_once_with(
+            conversation, source_url, capture_root=Path(temporary), images=()
+        )
         self.assertEqual(stdout.getvalue(), capture_complete_text(saved, source_url))
 
     def test_explicit_url_does_not_read_clipboard(self) -> None:
         conversation = user_conversation()
         saved = Path("/tmp/chatmd-isolated/2026/09/Capture.md")
         with (
+            tempfile.TemporaryDirectory() as temporary,
+            capture_root_var(Path(temporary)),
             patch("chatmd._read_macos_clipboard") as read_clipboard,
             patch("chatmd.parse_share", return_value=conversation) as parse_share,
             patch("chatmd.write_markdown", return_value=saved),
@@ -1389,7 +1490,7 @@ class ClipboardTests(unittest.TestCase):
             with (
                 self.subTest(contents=contents),
                 tempfile.TemporaryDirectory() as temporary,
-                patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+                capture_root_var(Path(temporary)),
                 patch("chatmd._read_macos_clipboard", return_value=contents),
                 patch("chatmd.parse_share") as parse_share,
                 patch("chatmd.write_markdown") as write_markdown,
@@ -1418,7 +1519,7 @@ class ClipboardTests(unittest.TestCase):
             with (
                 self.subTest(result=result),
                 tempfile.TemporaryDirectory() as temporary,
-                patch("chatmd.CAPTURE_ROOT", Path(temporary)),
+                capture_root_var(Path(temporary)),
                 patch("chatmd.subprocess.run", side_effect=side_effect, return_value=return_value),
                 patch("chatmd.parse_share") as parse_share,
                 patch("chatmd.write_markdown") as write_markdown,
@@ -1500,9 +1601,43 @@ class EntrypointTests(unittest.TestCase):
             pbpaste.write_text("#!/bin/sh\nprintf '%s' 'not a url'\n", encoding="utf-8")
             pbpaste.chmod(0o755)
             isolated_env = os.environ.copy()
+            isolated_env.pop(chatmd.CAPTURE_ROOT_ENV, None)
             isolated_env["PATH"] = str(fake_bin)
             missing_result = subprocess.run(
                 [str(chatmd_bin)],
+                cwd=outside,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=isolated_env,
+            )
+            first_root = root / "captures-a"
+            second_root = root / "captures-b"
+            first_env = isolated_env.copy()
+            first_env[chatmd.CAPTURE_ROOT_ENV] = str(first_root)
+            second_env = isolated_env.copy()
+            second_env[chatmd.CAPTURE_ROOT_ENV] = str(second_root)
+            resolve_script = (
+                "import chatmd; print(chatmd.resolve_capture_root())"
+            )
+            first_resolved = subprocess.run(
+                [str(python), "-c", resolve_script],
+                cwd=outside,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=first_env,
+            )
+            second_resolved = subprocess.run(
+                [str(python), "-c", resolve_script],
+                cwd=outside,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=second_env,
+            )
+            missing_root = subprocess.run(
+                [str(chatmd_bin), SOURCE_URL],
                 cwd=outside,
                 capture_output=True,
                 text=True,
@@ -1514,6 +1649,7 @@ class EntrypointTests(unittest.TestCase):
             self.assertIn("optional public HTTP(S) share URL", help_result.stdout)
             self.assertIn("https://chatgpt.com/share/", help_result.stdout)
             self.assertIn("macOS clipboard", help_result.stdout)
+            self.assertIn("CHATMD_CAPTURE_ROOT", help_result.stdout)
             self.assertNotIn("chatmd.py", help_result.stdout)
             self.assertNotIn(str(REPO_ROOT), help_result.stdout)
             assert_no_successful_capture_result(
@@ -1524,6 +1660,14 @@ class EntrypointTests(unittest.TestCase):
             self.assertIn("clipboard is not a URL", missing_result.stderr)
             assert_no_successful_capture_result(
                 self, missing_result.stdout, missing_result.stderr
+            )
+            self.assertEqual(first_resolved.stdout.strip(), str(first_root))
+            self.assertEqual(second_resolved.stdout.strip(), str(second_root))
+            self.assertNotEqual(first_root, second_root)
+            self.assertEqual(missing_root.returncode, 2, missing_root.stderr)
+            self.assertIn(chatmd.CAPTURE_ROOT_ENV, missing_root.stderr)
+            assert_no_successful_capture_result(
+                self, missing_root.stdout, missing_root.stderr
             )
 
 
