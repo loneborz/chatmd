@@ -95,7 +95,7 @@
 <span class="t-ok">CAPTURE COMPLETE</span>
 
 <span class="t-key">Saved:</span>
-<span class="t-path">~/My vault/Sources/ChatMD/2026/09/&lt;conversation&gt;.md</span>
+<span class="t-path">/path/to/captures/2026/09/&lt;conversation&gt;.md</span>
 
 <span class="t-key">Shared source:</span>
 <span class="t-dim">https://chatgpt.com/share/&lt;public-share-id&gt;</span>
@@ -346,7 +346,7 @@ Revoke it in ChatGPT &gt; Settings &gt; Data Controls &gt; Shared Links.</code><
         <li><span class="mono-label bkey">Clipboard</span><span>Zero-argument mode is macOS-native and needs <code>pbpaste</code></span></li>
         <li><span class="mono-label bkey">Files</span><span>File attachments stay placeholders and are not downloaded</span></li>
         <li><span class="mono-label bkey">Images</span><span>Original upload bytes are not recoverable when the share is sanitized</span></li>
-        <li><span class="mono-label bkey">Config</span><span>The capture root is machine-specific and set in <code>chatmd.py</code></span></li>
+        <li><span class="mono-label bkey">Config</span><span>Capture destination is set by <code>CHATMD_CAPTURE_ROOT</code> at runtime</span></li>
         <li><span class="mono-label bkey">Knowledge</span><span>No summarization, tagging, embeddings, RAG, or promotion</span></li>
         <li><span class="mono-label bkey">Revocation</span><span>Shared links are never revoked automatically</span></li>
         <li><span class="mono-label bkey">Bundle</span><span>The portable bundle contract is specified, not implemented</span></li>
@@ -417,12 +417,18 @@ Revoke it in ChatGPT &gt; Settings &gt; Data Controls &gt; Shared Links.</code><
       </ol>
 
       <aside class="install-note">
-        <p class="mono-label">Before you run it elsewhere</p>
+        <p class="mono-label">Set the capture directory</p>
         <p>
-          The capture root is currently a machine-specific path inside
-          <code>chatmd.py</code>. On another machine, change it and reinstall.
-          Portable capture-root configuration does not exist yet.
+          <code>CHATMD_CAPTURE_ROOT</code> tells ChatMD where captures are
+          saved on this machine.
         </p>
+        <div class="cmd">
+          <code>export CHATMD_CAPTURE_ROOT=<wbr>"/path/to/captures"</code>
+        </div>
+        <p>
+          Configure it once, then run <code>chatmd</code> from anywhere.
+        </p>
+        <span class="mono-label">More on GitHub</span>
         <a class="btn btn-primary full" href="https://github.com/loneborz/chatmd">
           loneborz/chatmd
           <span class="arrow" aria-hidden="true">&#8599;</span>
