@@ -1,23 +1,23 @@
 # chatmd
 
-ChatMD captures a public ChatGPT share as a deterministic local Markdown Source
-artifact.
+ChatMD saves a ChatGPT conversation as a Markdown file on your own computer.
 
-Shared conversations are transient web pages. ChatMD writes one Markdown file
-from a public share URL without summarizing, paraphrasing, or otherwise
-rewriting the visible conversation. The portable conversation bundle specified
-in CHAT-D1 is not the current output format.
+You create a ChatGPT share link and give that link to ChatMD. ChatMD uses the
+link to retrieve the conversation and saves it as Markdown in your local vault.
+Supported user images are downloaded and saved next to that file. ChatMD does
+not summarize, paraphrase, or rewrite the conversation. After a successful
+save, the local Markdown and image files do not depend on the public share
+remaining available.
 
 ## What it does
 
 Given one public ChatGPT share URL, ChatMD fetches the share over ordinary HTTP,
 reconstructs the active visible conversation from ChatGPT's structured share
 data, and writes a deterministic Markdown file into a local vault directory.
-Supported visible user images are stored beside that Markdown file as the
-share-visible representation.
+Supported visible user images are saved beside the Markdown file in the version
+available through the public share.
 
-It is a capture boundary, not a knowledge-processing system. Successful captures
-currently go to:
+Successful captures currently go to:
 
 ```text
 ~/My vault/Sources/ChatMD/YYYY/MM/
