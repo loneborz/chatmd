@@ -815,6 +815,9 @@ html.js .reveal.in { opacity: 1; transform: none; }
 .cmd .copy { flex: none; }
 
 .install-note {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -822,9 +825,34 @@ html.js .reveal.in { opacity: 1; transform: none; }
   position: sticky;
   top: 96px;
 }
-.install-note .mono-label { color: var(--body); margin-bottom: 14px; }
-.install-note > p:last-of-type { font-size: 14.5px; line-height: 1.68; color: var(--muted); }
+.install-note .mono-label { color: var(--body); margin-bottom: 0; }
 .install-note code { white-space: normal; font-size: 12.5px; }
+.install-note-setup,
+.install-note-more {
+  display: flex;
+  flex-direction: column;
+}
+.install-note-setup { gap: 10px; }
+.install-note-setup > p:not(.mono-label) {
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--muted);
+}
+.install-note-setup .cmd {
+  align-items: flex-start;
+  margin: 4px 0 2px;
+  padding: 14px 16px;
+}
+.install-note .cmd > code {
+  overflow-x: hidden;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  line-height: 1.55;
+}
+.install-note .cmd-path { display: block; }
+.install-note-more { gap: 10px; }
+.install-note-more .btn.full { margin-top: 0; }
 
 /* ==========================================================================
    FOOTER
