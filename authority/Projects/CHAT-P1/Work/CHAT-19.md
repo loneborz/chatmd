@@ -232,3 +232,25 @@ Implementation or passing tests alone do not complete this Work.
 Do not mark this Work done, check human-accepted criteria, reconcile authority,
 commit implementation, or push implementation unless a later human decision
 explicitly authorizes those actions.
+<!-- lwa:derived:start -->
+## Object state
+
+- ID: `CHAT-19`
+- Kind: `issue`
+- Status: `active`
+- Revision: `1`
+- Authority: `local-native`
+- Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
+
+## Owned Documents
+
+_None._
+
+## Relations
+
+_None._
+
+## Backlinks
+
+_None._
+<!-- lwa:derived:end -->

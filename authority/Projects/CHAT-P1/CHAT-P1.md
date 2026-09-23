@@ -75,7 +75,11 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-14|CHAT-14]]: Synchronize the ChatMD onepager with runtime capture-root behavior
 - [[Projects/CHAT-P1/Work/CHAT-15|CHAT-15]]: Polish the ChatMD install aside capture-root card
 - [[Projects/CHAT-P1/Work/CHAT-16|CHAT-16]]: Remove specified divider lines from the ChatMD onepager
+- [[Projects/CHAT-P1/Work/CHAT-17|CHAT-17]]: Define a universal ChatMD capture invocation
+- [[Projects/CHAT-P1/Work/CHAT-18|CHAT-18]]: Import Codex shared conversations
+- [[Projects/CHAT-P1/Work/CHAT-19|CHAT-19]]: Bound external network waits during capture
 - [[Projects/CHAT-P1/Work/CHAT-2|CHAT-2]]: Implement deterministic ChatGPT share parsing core
+- [[Projects/CHAT-P1/Work/CHAT-20|CHAT-20]]: License ChatMD under MIT
 - [[Projects/CHAT-P1/Work/CHAT-3|CHAT-3]]: Extend canonical conversation model with title and citations
 - [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow
 - [[Projects/CHAT-P1/Work/CHAT-5|CHAT-5]]: Make local ChatMD capture reliable
