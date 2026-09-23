@@ -14,18 +14,20 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.message import Message as Headers
 from html.parser import HTMLParser
+from http.client import HTTPException
 from http.cookiejar import CookieJar
 from itertools import pairwise
 from pathlib import Path
 from typing import Protocol, Self
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 ROUTE = "routes/share.$shareId.($action)"
 MARKER = "window.__reactRouterContext.streamController.enqueue("
 CAPTURE_ROOT_ENV = "CHATMD_CAPTURE_ROOT"
 USER_AGENT = "Mozilla/5.0 (compatible; ChatMD/0.1)"
+REQUEST_TIMEOUT_SECONDS = 30
 _SEDIMENT_FILE = re.compile(r"^file_[A-Za-z0-9_-]+$")
 _SHARE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -190,16 +192,15 @@ class ShareSession:
 
     def __init__(
         self,
-        opener: Callable[[str | Request], _ShareResponse] | None = None,
+        opener: Callable[..., _ShareResponse] | None = None,
     ) -> None:
         self.cookies = CookieJar()
-        if opener is None:
-            self._open = build_opener(HTTPCookieProcessor(self.cookies)).open
-        else:
-            self._open = opener
+        self._open: Callable[..., _ShareResponse] = (
+            build_opener(HTTPCookieProcessor(self.cookies)).open if opener is None else opener
+        )
 
     def fetch_text(self, url: str) -> str:
-        body, headers = self._request(url)
+        body, headers = self._request(url, "share fetch")
         charset = headers.get_content_charset() or "utf-8"
         return body.decode(charset)
 
@@ -207,22 +208,23 @@ class ShareSession:
         body, _headers = self._request(url)
         return body
 
-    def _request(self, url: str) -> tuple[bytes, Headers]:
+    def _request(self, url: str, phase: str = "request") -> tuple[bytes, Headers]:
         request = Request(url, headers={"User-Agent": USER_AGENT})
         try:
-            with self._open(request) as response:
+            with self._open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 return response.read(), response.headers
         except HTTPError as error:
-            raise ParseError(f"HTTP {error.code}") from error
-        except URLError as error:
-            raise ParseError("request failed") from error
+            raise ParseError(f"{phase} HTTP {error.code}") from error
+        except (HTTPException, OSError) as error:
+            timed_out = isinstance(error, TimeoutError) or (
+                isinstance(error, URLError) and isinstance(error.reason, TimeoutError)
+            )
+            failure = "timed out" if timed_out else "request failed"
+            raise ParseError(f"{phase} {failure}") from error
 
 
-def fetch_share(url: str, opener: Callable[[str], _ShareResponse] = urlopen) -> str:
-    with opener(url) as response:
-        body = response.read()
-        charset = response.headers.get_content_charset() or "utf-8"
-    return body.decode(charset)
+def fetch_share(url: str, opener: Callable[..., _ShareResponse] | None = None) -> str:
+    return ShareSession(opener).fetch_text(url)
 
 
 def decode_hydration(html: str) -> HydrationGraph:

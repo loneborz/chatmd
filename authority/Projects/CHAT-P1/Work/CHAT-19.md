@@ -4,10 +4,10 @@
   "kind": "issue",
   "title": "Bound external network waits during capture",
   "authority": "local-native",
-  "revision": 1,
-  "status": "active",
+  "revision": 2,
+  "status": "done",
   "created_at": "2026-09-23T16:24:00Z",
-  "updated_at": "2026-09-23T16:24:00Z",
+  "updated_at": "2026-09-23T20:27:06Z",
   "owner": {
     "kind": "project",
     "id": "CHAT-P1"
@@ -183,40 +183,40 @@ evidence and must not be committed or retained in tracked authority.
 
 ## Acceptance criteria
 
-- [ ] No external HTTP request on the normal ChatMD capture path can block
+- [x] No external HTTP request on the normal ChatMD capture path can block
       indefinitely under the supported runtime model.
-- [ ] A stalled request terminates through an explicit bounded failure path.
-- [ ] Timeout and expected network failures produce a clear ChatMD error and a
+- [x] A stalled request terminates through an explicit bounded failure path.
+- [x] Timeout and expected network failures produce a clear ChatMD error and a
       non-zero CLI result rather than requiring Ctrl+C.
-- [ ] Normal timeout or network failure handling does not expose an unhandled
+- [x] Normal timeout or network failure handling does not expose an unhandled
       Python traceback to the user.
-- [ ] Failure reporting identifies the relevant capture phase closely enough
+- [x] Failure reporting identifies the relevant capture phase closely enough
       to distinguish share fetch, image backend resolution, and image download
       where those phases are separately known.
-- [ ] A supported visible image remains mandatory for a successful faithful
+- [x] A supported visible image remains mandatory for a successful faithful
       capture.
-- [ ] Failed image acquisition does not produce `CAPTURE COMPLETE`, a
+- [x] Failed image acquisition does not produce `CAPTURE COMPLETE`, a
       misleading final Markdown capture, or silently omitted visual evidence.
-- [ ] Existing successful text-only capture behavior remains unchanged.
-- [ ] Existing successful supported-image capture behavior remains unchanged
+- [x] Existing successful text-only capture behavior remains unchanged.
+- [x] Existing successful supported-image capture behavior remains unchanged
       apart from bounded network behavior.
-- [ ] Investigation records whether an upstream ChatGPT behavior change was
+- [x] Investigation records whether an upstream ChatGPT behavior change was
       demonstrated, not demonstrated, or remains uncertain.
-- [ ] Any upstream compatibility change is limited to the affected boundary
+- [x] Any upstream compatibility change is limited to the affected boundary
       and is backed by evidence.
-- [ ] Deterministic regression coverage includes a stalled or timed-out
+- [x] Deterministic regression coverage includes a stalled or timed-out
       request without depending on live ChatGPT.
-- [ ] Existing relevant image-resolution and blob-download failure tests
+- [x] Existing relevant image-resolution and blob-download failure tests
       remain green.
-- [ ] No public conversation body, live share identifier, credential, cookie,
+- [x] No public conversation body, live share identifier, credential, cookie,
       or signed asset URL is retained in tracked evidence or fixtures.
-- [ ] `python3 -m unittest -v`, `npx --yes pyright`,
+- [x] `python3 -m unittest -v`, `npx --yes pyright`,
       `uvx ruff check .`, and `git diff --check` pass.
-- [ ] Local-native authority render and validate pass.
-- [ ] The complete intended diff contains no unrelated scope.
-- [ ] A real end-to-end image capture is verified when safely possible after
+- [x] Local-native authority render and validate pass.
+- [x] The complete intended diff contains no unrelated scope.
+- [x] A real end-to-end image capture is verified when safely possible after
       implementation.
-- [ ] A human accepts the resulting runtime behavior against this Work
+- [x] A human accepts the resulting runtime behavior against this Work
       contract.
 
 ## Completion boundary
@@ -232,13 +232,57 @@ Implementation or passing tests alone do not complete this Work.
 Do not mark this Work done, check human-accepted criteria, reconcile authority,
 commit implementation, or push implementation unless a later human decision
 explicitly authorizes those actions.
+
+## Implementation evidence
+
+`chatmd.py` now passes a 30-second timeout to the shared standard-library
+request boundary. Timeout and expected network errors become phase-aware
+`ParseError` failures. The share parser and image-resolution contract were not
+changed. Required image acquisition remains fail-closed.
+
+Focused deterministic regression coverage is in `test_chatmd.py`. The
+investigation record is `evidence/CHAT-19/findings.md`; no public share URL,
+conversation body, cookie, credential, backend URL, or signed asset URL is
+retained.
+
+## Verification
+
+Session results supplied for closeout:
+
+- patched source capture passed;
+- installed `chatmd` capture passed;
+- a current public ChatGPT share with a visible image passed;
+- image preservation passed;
+- collision handling passed;
+- no upstream ChatGPT behavior change was demonstrated.
+
+The session execution record states that implementation and repository checks
+passed. Its `verification_attempts` list is empty, so it does not retain
+command-level results. The exercised timeout is a 30-second socket inactivity
+limit. It bounds a stalled request, but it is not a total wall-clock deadline
+for a response that continues making progress.
+
+The prepared run `go-20260923T190607.935411000Z-c81c71257bcce7f4` remains
+recorded as partial because its earlier execution ended before live-share
+verification and human acceptance. This later Work reconciliation records
+those results and acceptance; the run record is left intact.
+
+## Human acceptance
+
+Accepted by the human owner on `2026-09-23T20:27:06Z` for the resulting
+runtime behavior, including the documented inactivity-timeout limit.
+
+## Disposition
+
+CHAT-19 is done. The implementation and authority changes are local and remain
+uncommitted and unpushed.
 <!-- lwa:derived:start -->
 ## Object state
 
 - ID: `CHAT-19`
 - Kind: `issue`
-- Status: `active`
-- Revision: `1`
+- Status: `done`
+- Revision: `2`
 - Authority: `local-native`
 - Owner: [[Projects/CHAT-P1/CHAT-P1|CHAT-P1]]: chatmd
 

@@ -4,12 +4,14 @@ import os
 import struct
 import subprocess
 import tempfile
+import time
 import unittest
 import zlib
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import date
 from email.message import Message as Headers
 from pathlib import Path
+from threading import Event
 from unittest.mock import ANY, patch
 
 import chatmd
@@ -665,14 +667,19 @@ class ParserTests(unittest.TestCase):
             chatmd.reconstruct_branch(graph, data_ref)
 
     def test_fetch_is_isolated_and_injectable(self) -> None:
-        calls: list[str] = []
+        calls: list[tuple[str, float]] = []
 
-        def opener(url: str) -> FakeResponse:
-            calls.append(url)
+        def opener(request: chatmd.Request, *, timeout: float) -> FakeResponse:
+            calls.append((request.full_url, timeout))
             return FakeResponse("héllo".encode())
 
-        self.assertEqual(chatmd.fetch_share("https://chatgpt.com/share/example", opener), "héllo")
-        self.assertEqual(calls, ["https://chatgpt.com/share/example"])
+        self.assertEqual(
+            chatmd.fetch_share("https://chatgpt.com/share/example", opener), "héllo"
+        )
+        self.assertEqual(
+            calls,
+            [("https://chatgpt.com/share/example", chatmd.REQUEST_TIMEOUT_SECONDS)],
+        )
 
 
 class WorkflowTests(unittest.TestCase):
@@ -1096,6 +1103,108 @@ class WorkflowTests(unittest.TestCase):
                 write_markdown.assert_not_called()
                 assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
             self.assertEqual(markdown_files(root), [])
+
+    def test_timed_out_share_fetch_is_bounded_and_has_no_traceback(self) -> None:
+        timeout = 0.02
+
+        class BlockingOpener:
+            def __init__(self) -> None:
+                self.timeouts: list[float] = []
+
+            def open(self, request: chatmd.Request, *, timeout: float) -> FakeResponse:
+                self.timeouts.append(timeout)
+                if request.full_url != SOURCE_URL:
+                    raise AssertionError(f"unexpected request: {request.full_url}")
+                if Event().wait(timeout):
+                    raise AssertionError("unexpected timeout event")
+                raise chatmd.URLError(TimeoutError("timed out"))
+
+        opener = BlockingOpener()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            started = time.monotonic()
+            with (
+                capture_root_var(root),
+                patch("chatmd.REQUEST_TIMEOUT_SECONDS", timeout),
+                patch("chatmd.build_opener", return_value=opener),
+                patch("chatmd.write_markdown") as write_markdown,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                chatmd.main([SOURCE_URL])
+            self.assertEqual(list(root.iterdir()), [])
+            elapsed = time.monotonic() - started
+
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(opener.timeouts, [timeout])
+        self.assertGreaterEqual(elapsed, timeout)
+        self.assertLess(elapsed, 1)
+        self.assertIn("share fetch timed out", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertEqual(stdout.getvalue(), "")
+        write_markdown.assert_not_called()
+        assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
+
+    def test_timed_out_image_download_fails_cli_without_capture(self) -> None:
+        timeout = 0.02
+        png = png_bytes(1, 1)
+        html = image_share_html(size_bytes=len(png), width=1, height=1)
+
+        class TimedOutResponse(FakeResponse):
+            def __init__(self, timeout: float) -> None:
+                super().__init__(b"")
+                self.timeout = timeout
+
+            def read(self) -> bytes:
+                Event().wait(self.timeout)
+                raise TimeoutError("timed out")
+
+        class ScriptedOpener:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, float]] = []
+
+            def open(self, request: chatmd.Request, *, timeout: float) -> FakeResponse:
+                url = request.full_url
+                self.calls.append((url, timeout))
+                if url == SOURCE_URL:
+                    return FakeResponse(html.encode())
+                if "/backend-api/files/download/" in url:
+                    return FakeResponse(resolve_payload())
+                if url == BLOB_URL:
+                    return TimedOutResponse(timeout)
+                raise AssertionError(f"unexpected request: {url}")
+
+        opener = ScriptedOpener()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            started = time.monotonic()
+            with (
+                capture_root_var(root),
+                patch("chatmd.REQUEST_TIMEOUT_SECONDS", timeout),
+                patch("chatmd.build_opener", return_value=opener),
+                patch("chatmd.write_markdown") as write_markdown,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                chatmd.main([SOURCE_URL])
+
+            self.assertEqual(caught.exception.code, 2)
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, timeout)
+            self.assertLess(elapsed, 1)
+            self.assertEqual([value for _url, value in opener.calls], [timeout] * 3)
+            self.assertIn("visible image download failed", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(list(root.iterdir()), [])
+            write_markdown.assert_not_called()
+            assert_no_successful_capture_result(self, stdout.getvalue(), stderr.getvalue())
 
     def test_main_persistence_failure_does_not_emit_capture_complete(self) -> None:
         conversation = user_conversation("Title", "visible body")
