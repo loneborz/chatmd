@@ -204,6 +204,20 @@ def grouped_reference(
     }
 
 
+def url_reference(
+    marker: str, start: object, end: object, *, alt: object = MISSING
+) -> dict[str, object]:
+    reference: dict[str, object] = {
+        "type": "url",
+        "matched_text": marker,
+        "start_idx": start,
+        "end_idx": end,
+    }
+    if alt is not MISSING:
+        reference["alt"] = alt
+    return reference
+
+
 def fixture(
     *,
     assistant_recipient: object = "all",
@@ -527,6 +541,95 @@ class ParserTests(unittest.TestCase):
             chatmd.TextPart(" after"),
         ))
         self.assertEqual(message.citations, ())
+
+    def test_url_reference_projects_exact_alt_at_its_anchor(self) -> None:
+        marker = "\ue200url\ue202github\ue201"
+        alt = "[Repository](https://example.com/repo?source=share)"
+        text = f"é before {marker} after 🌱"
+        reference = url_reference(
+            marker,
+            len("é before "),
+            len("é before ") + len(marker),
+            alt=alt,
+        )
+        reference.update({
+            "safe_urls": ["https://example.com/one", "https://example.com/two"],
+            "item": {"url": "[Other](https://example.com/other)"},
+            "refs": ["https://example.com/third"],
+        })
+
+        conversation = chatmd.parse_share_html(citation_fixture(text, [reference]))
+        message = conversation.messages[1]
+
+        self.assertEqual(message.parts, (
+            chatmd.TextPart("é before "),
+            chatmd.TextPart(alt),
+            chatmd.TextPart(" after 🌱"),
+        ))
+        self.assertEqual(message.citations, ())
+        markdown = chatmd.serialize_conversation(
+            conversation, "https://chatgpt.com/share/synthetic"
+        )
+        self.assertIn(alt, markdown)
+        self.assertNotIn(marker, markdown)
+
+    def test_multiple_url_references_preserve_order_and_surrounding_text(self) -> None:
+        first = "\ue200url\ue202first\ue201"
+        second = "\ue200url\ue202second\ue201"
+        first_alt = "[First](https://example.com/first)"
+        second_alt = "[Second](https://example.com/second)"
+        text = f"before {first} between {second} after"
+        references = [
+            url_reference(
+                first,
+                text.index(first),
+                text.index(first) + len(first),
+                alt=first_alt,
+            ),
+            url_reference(
+                second,
+                text.index(second),
+                text.index(second) + len(second),
+                alt=second_alt,
+            ),
+        ]
+
+        message = chatmd.parse_share_html(
+            citation_fixture(text, references)
+        ).messages[1]
+
+        self.assertEqual(message.parts, (
+            chatmd.TextPart("before "),
+            chatmd.TextPart(first_alt),
+            chatmd.TextPart(" between "),
+            chatmd.TextPart(second_alt),
+            chatmd.TextPart(" after"),
+        ))
+        self.assertEqual(message.citations, ())
+
+    def test_malformed_url_reference_alt_fails_visibly(self) -> None:
+        marker = "\ue200url\ue202source\ue201"
+        cases = (
+            url_reference(marker, 0, len(marker)),
+            url_reference(marker, 0, len(marker), alt=""),
+            url_reference(marker, 0, len(marker), alt=42),
+        )
+        for reference in cases:
+            with self.subTest(alt=reference.get("alt")), self.assertRaisesRegex(
+                chatmd.ParseError, "URL reference alt"
+            ):
+                chatmd.parse_share_html(citation_fixture(marker, [reference]))
+
+    def test_malformed_url_reference_anchor_fails_visibly(self) -> None:
+        marker = "\ue200url\ue202source\ue201"
+        for start, end in ((None, len(marker)), (1, len(marker))):
+            reference = url_reference(
+                marker, start, end, alt="[Link](https://example.com)"
+            )
+            with self.subTest(start=start), self.assertRaisesRegex(
+                chatmd.ParseError, "anchor|does not match"
+            ):
+                chatmd.parse_share_html(citation_fixture(marker, [reference]))
 
     def test_followup_reference_removes_only_its_anchored_control_text(self) -> None:
         label = "Ask a follow-up"

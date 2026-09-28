@@ -80,6 +80,7 @@ Bundles must provide a machine-readable semantic and integrity contract, a deter
 - [[Projects/CHAT-P1/Work/CHAT-19|CHAT-19]]: Bound external network waits during capture
 - [[Projects/CHAT-P1/Work/CHAT-2|CHAT-2]]: Implement deterministic ChatGPT share parsing core
 - [[Projects/CHAT-P1/Work/CHAT-20|CHAT-20]]: License ChatMD under MIT
+- [[Projects/CHAT-P1/Work/CHAT-21|CHAT-21]]: Project anchored URL references in ChatGPT share text
 - [[Projects/CHAT-P1/Work/CHAT-3|CHAT-3]]: Extend canonical conversation model with title and citations
 - [[Projects/CHAT-P1/Work/CHAT-4|CHAT-4]]: Ship the first complete end-user chatmd workflow
 - [[Projects/CHAT-P1/Work/CHAT-5|CHAT-5]]: Make local ChatMD capture reliable

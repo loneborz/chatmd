@@ -474,6 +474,7 @@ class _VisibleAnnotation:
     start: int
     end: int
     filename: str | None = None
+    replacement: str | None = None
 
 
 def _reference_anchor(
@@ -519,6 +520,13 @@ def _visible_annotations(
             if not isinstance(filename, str) or not filename:
                 raise ParseError("visible file attachment filename is missing")
             annotations.append(_VisibleAnnotation(start, end, filename))
+            continue
+        if reference_type == "url":
+            start, end = _reference_anchor(graph, reference_ref, text)
+            replacement = graph.field(reference_ref, "alt")
+            if not isinstance(replacement, str) or not replacement:
+                raise ParseError("visible URL reference alt is missing or malformed")
+            annotations.append(_VisibleAnnotation(start, end, replacement=replacement))
             continue
         if reference_type == "followup_a":
             start, end = _reference_anchor(graph, reference_ref, text)
@@ -570,6 +578,8 @@ def _project_parts(
                 projected.append(TextPart(part.text[cursor:local_start]))
             if annotation.filename is not None:
                 projected.append(FilePart(annotation.filename))
+            elif annotation.replacement is not None:
+                projected.append(TextPart(annotation.replacement))
             cursor = local_end
         if cursor < len(part.text):
             projected.append(TextPart(part.text[cursor:]))
@@ -609,7 +619,7 @@ def _normalize_citations(graph: HydrationGraph, message_ref: int, text: str) -> 
         if not isinstance(reference_ref, int) or not isinstance(graph.value(reference_ref), dict):
             raise ParseError("content reference is malformed")
         reference_type = graph.field(reference_ref, "type")
-        if reference_type in {"sources_footnote", "hidden", "file", "followup_a"}:
+        if reference_type in {"sources_footnote", "hidden", "file", "followup_a", "url"}:
             continue
         if reference_type != "grouped_webpages":
             if graph.field_ref(reference_ref, "matched_text") is not None:
